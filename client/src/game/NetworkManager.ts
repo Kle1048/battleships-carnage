@@ -152,6 +152,45 @@ export class NetworkManager {
         this.players.delete(id);
       }
     });
+    
+    // Handle ship damage
+    this.socket.on('shipDamaged', (data: { id: string, hull: number }) => {
+      console.log('Ship damaged:', data);
+      const ship = this.players.get(data.id);
+      if (ship) {
+        // Update hull value
+        ship.hull = data.hull;
+        
+        // Update ship appearance
+        ship.updateDamageAppearance();
+      }
+    });
+    
+    // Handle ship destruction
+    this.socket.on('shipDestroyed', (data: { id: string }) => {
+      console.log('Ship destroyed:', data);
+      const ship = this.players.get(data.id);
+      if (ship) {
+        // Destroy the ship
+        ship.destroy();
+      }
+    });
+    
+    // Handle ship respawn
+    this.socket.on('shipRespawned', (player: Player) => {
+      console.log('Ship respawned:', player);
+      const ship = this.players.get(player.id);
+      if (ship) {
+        // Update ship properties
+        ship.x = player.x;
+        ship.y = player.y;
+        ship.hull = player.hull;
+        ship.sprite.visible = true;
+        
+        // Reset ship appearance
+        ship.updateDamageAppearance();
+      }
+    });
   }
 
   private addPlayer(player: Player): void {
@@ -214,6 +253,37 @@ export class NetworkManager {
     // Disconnect from the server
     if (this.socket) {
       this.socket.disconnect();
+    }
+  }
+
+  /**
+   * Get all ships in the game, including the local player
+   * @returns Array of all ships
+   */
+  public getAllShips(): Ship[] {
+    return Array.from(this.players.values());
+  }
+  
+  /**
+   * Get a specific ship by player ID
+   * @param id Player ID
+   * @returns Ship or undefined if not found
+   */
+  public getShipById(id: string): Ship | undefined {
+    return this.players.get(id);
+  }
+  
+  /**
+   * Report damage to the server
+   * @param targetId ID of the ship that was damaged
+   * @param amount Amount of damage
+   */
+  public reportDamage(targetId: string, amount: number): void {
+    if (this.socket && this.connectionStatus === 'connected') {
+      this.socket.emit('damageShip', {
+        targetId,
+        amount
+      });
     }
   }
 } 

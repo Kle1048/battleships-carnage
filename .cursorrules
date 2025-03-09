@@ -105,7 +105,7 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 
 # Scratchpad
 
-## Naval Battle Game Development Plan (v0.1.0)
+## Naval Battle Game Development Plan (v0.2.0)
 
 ### Project Overview
 - Top-down multiplayer naval battle game
@@ -113,58 +113,52 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - Ships can be upgraded through combat and collecting wreckage
 - Realistic naval physics with momentum-based movement
 
-### Development Phases
+### Current Task: Implement Collision Detection and Ship Damage System
+
+#### Collision Detection Implementation Plan
 [X] Phase 1: Project Setup & Basic Game Engine
 [X] Phase 2: Ship Movement & Controls
-[ ] Phase 3: Combat System
+[WIP] Phase 3: Combat System
 [X] Phase 4: Multiplayer Integration
 [ ] Phase 5: Progression System
 [ ] Phase 6: Polish & Optimization
 
-### Phase 1 Tasks (Project Setup)
-[X] Initialize project structure
-[X] Set up development environment
-[X] Create basic HTML/CSS layout
-[X] Set up React frontend
-[X] Integrate PixiJS for rendering
-[X] Create basic game loop
+#### Collision Detection Tasks
+[X] Implement basic ship-to-ship collision detection
+[X] Add collision response (ships bounce/push each other)
+[X] Implement damage on collision based on relative speed
+[X] Add visual feedback for collisions (particle effects)
+[X] Synchronize collisions across the network
+
+#### Ship Damage System Tasks
+[X] Add health property to ships
+[X] Implement damage application function
+[X] Create visual indicators for ship health
+[X] Add smoke/fire effects for damaged ships
+[X] Implement ship destruction when health reaches zero
+[X] Add ship respawning after destruction
+[X] Synchronize damage and destruction across the network
+
+### Implementation Approach
+1. First, add collision detection between ships using bounding box or circle collision
+2. Then implement the damage system with health tracking
+3. Add visual feedback for both collisions and damage
+4. Finally, synchronize these new mechanics across the network
+
+### Phase 3 Tasks (Combat System)
+[ ] Implement weapon systems (cannons, torpedoes, rockets)
+[ ] Add projectile physics
+[X] Implement damage system
+[X] Create visual effects for combat
+[X] Add ship health/destruction mechanics
 
 ### Phase 2 Tasks (Ship Movement)
 [X] Implement ship sprites and basic rendering
 [X] Add momentum-based movement physics
 [X] Implement ship steering and throttle controls
 [X] Implement realistic ship controls with discrete settings
-[ ] Add collision detection
+[X] Add collision detection
 [X] Implement camera following player ship
-
-### Phase 3 Tasks (Combat System)
-[ ] Implement weapon systems (cannons, torpedoes, rockets)
-[ ] Add projectile physics
-[ ] Implement damage system
-[ ] Create visual effects for combat
-[ ] Add ship health/destruction mechanics
-
-### Phase 4 Tasks (Multiplayer)
-[X] Set up WebSocket server
-[X] Implement player synchronization
-[ ] Add basic chat functionality
-[X] Implement server-side game state management
-[X] Enable local network multiplayer
-[ ] Add player authentication
-
-### Phase 5 Tasks (Progression)
-[ ] Implement wreckage collection
-[ ] Add ship upgrade system
-[ ] Create leaderboard
-[ ] Implement experience points system
-
-### Phase 6 Tasks (Polish)
-[X] Optimize ship visibility with distinct colors
-[X] Improve water background for better contrast
-[ ] Add sound effects and music
-[X] Improve visual effects for ships
-[ ] Add tutorial for new players
-[ ] Implement responsive design for different devices
 
 ### Troubleshooting
 [X] Fix Content Security Policy issues
@@ -187,8 +181,8 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 [X] Realistic ship controls with throttle and rudder settings
 [X] Network test page for connection debugging
 
-### Next Steps for v0.2.0
-[ ] Implement collision detection
+### Version 0.2.0 Goals
+[X] Implement collision detection
 [ ] Add basic weapon systems
-[ ] Implement ship damage mechanics
-[ ] Add visual effects for combat
+[X] Implement ship damage mechanics
+[X] Add visual effects for combat

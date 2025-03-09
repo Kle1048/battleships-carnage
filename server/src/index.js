@@ -67,7 +67,7 @@ io.on('connection', (socket) => {
     x: 2500 + Math.random() * 200 - 100, // Random position near center
     y: 2500 + Math.random() * 200 - 100,
     rotation: 0,
-    type: 'destroyer',
+    type: getRandomShipType(),
     hull: 100
   };
   
@@ -97,6 +97,45 @@ io.on('connection', (socket) => {
     }
   });
   
+  // Handle ship damage
+  socket.on('damageShip', (data) => {
+    const { targetId, amount } = data;
+    
+    // Validate the damage request
+    if (players[targetId] && amount > 0) {
+      // Apply damage to the target ship
+      players[targetId].hull -= amount;
+      
+      // Check if ship is destroyed
+      if (players[targetId].hull <= 0) {
+        players[targetId].hull = 0;
+        
+        // Broadcast ship destruction to all players
+        io.emit('shipDestroyed', {
+          id: targetId
+        });
+        
+        // Respawn the ship after a delay
+        setTimeout(() => {
+          if (players[targetId]) {
+            players[targetId].hull = 100;
+            players[targetId].x = 2500 + Math.random() * 200 - 100;
+            players[targetId].y = 2500 + Math.random() * 200 - 100;
+            
+            // Broadcast ship respawn
+            io.emit('shipRespawned', players[targetId]);
+          }
+        }, 5000); // 5 second respawn time
+      } else {
+        // Broadcast damage to all players
+        io.emit('shipDamaged', {
+          id: targetId,
+          hull: players[targetId].hull
+        });
+      }
+    }
+  });
+  
   // Handle player disconnection
   socket.on('disconnect', () => {
     console.log(`Player disconnected: ${socket.id}`);
@@ -108,6 +147,12 @@ io.on('connection', (socket) => {
     io.emit('playerLeft', socket.id);
   });
 });
+
+// Helper function to get a random ship type
+function getRandomShipType() {
+  const types = ['destroyer', 'cruiser', 'battleship'];
+  return types[Math.floor(Math.random() * types.length)];
+}
 
 // Serve static files
 app.use(express.static(path.join(__dirname, '../public')));

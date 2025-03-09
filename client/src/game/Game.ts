@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { Ship, ThrottleSetting, RudderSetting } from './Ship';
+import { Ship, ThrottleSetting, RudderSetting, setNetworkManagerRef } from './Ship';
 import { InputHandler } from './InputHandler';
 import { NetworkManager } from './NetworkManager';
 
@@ -12,6 +12,9 @@ let gameLoop: (delta: number) => void;
 let statusText: PIXI.Text;
 let controlsText: PIXI.Text;
 let shipStatusText: PIXI.Text;
+let healthBar: PIXI.Graphics;
+let healthBarBg: PIXI.Graphics;
+let damageIndicator: PIXI.Text;
 
 // Game world properties
 const WORLD_SIZE = 5000; // Size of the game world
@@ -51,6 +54,9 @@ export function initGame(pixiApp: PIXI.Application): void {
   // Set up network manager
   networkManager = new NetworkManager(gameWorld);
   networkManager.setLocalPlayer(playerShip);
+  
+  // Set network manager reference in Ship class
+  setNetworkManagerRef(networkManager);
   
   // Create UI container (fixed to screen, not affected by camera)
   const uiContainer = new PIXI.Container();
@@ -102,6 +108,35 @@ export function initGame(pixiApp: PIXI.Application): void {
   shipStatusText.position.set(app.screen.width / 2, 20);
   uiContainer.addChild(shipStatusText as any);
   
+  // Create health bar background
+  healthBarBg = new PIXI.Graphics();
+  healthBarBg.beginFill(0x333333);
+  healthBarBg.drawRect(0, 0, 200, 15);
+  healthBarBg.endFill();
+  healthBarBg.position.set(20, 50);
+  uiContainer.addChild(healthBarBg as any);
+  
+  // Create health bar
+  healthBar = new PIXI.Graphics();
+  healthBar.beginFill(0x00FF00);
+  healthBar.drawRect(0, 0, 200, 15);
+  healthBar.endFill();
+  healthBar.position.set(20, 50);
+  uiContainer.addChild(healthBar as any);
+  
+  // Create damage indicator text
+  damageIndicator = new PIXI.Text('', {
+    fontFamily: 'Arial',
+    fontSize: 24,
+    fill: 0xFF0000,
+    align: 'center',
+    fontWeight: 'bold'
+  });
+  damageIndicator.anchor.set(0.5);
+  damageIndicator.position.set(app.screen.width / 2, app.screen.height / 2);
+  damageIndicator.visible = false;
+  uiContainer.addChild(damageIndicator as any);
+  
   // Set up game loop
   gameLoop = (delta: number) => {
     // Handle ship controls with the new control scheme
@@ -110,6 +145,9 @@ export function initGame(pixiApp: PIXI.Application): void {
     // Update ship position
     playerShip.update(delta);
     
+    // Check for collisions
+    checkCollisions();
+    
     // Update camera position to follow player
     updateCamera(gameWorld);
     
@@ -117,6 +155,7 @@ export function initGame(pixiApp: PIXI.Application): void {
     updateConnectionStatus();
     updateControlsText();
     updateShipStatusText();
+    updateHealthBar();
     
     // Send position update to server
     networkManager.updatePosition();
@@ -315,4 +354,75 @@ function updateCamera(gameWorld: PIXI.Container): void {
   
   gameWorld.position.x = targetX;
   gameWorld.position.y = targetY;
+}
+
+/**
+ * Check for collisions between ships
+ */
+function checkCollisions(): void {
+  // Get all ships from the network manager
+  const ships = networkManager.getAllShips();
+  
+  // Check for collisions between all pairs of ships
+  for (let i = 0; i < ships.length; i++) {
+    const shipA = ships[i];
+    
+    for (let j = i + 1; j < ships.length; j++) {
+      const shipB = ships[j];
+      
+      // Skip if either ship is not visible (destroyed)
+      if (!shipA.sprite.visible || !shipB.sprite.visible) {
+        continue;
+      }
+      
+      // Check for collision
+      if (shipA.checkCollision(shipB)) {
+        // Handle collision for both ships
+        shipA.handleCollision(shipB);
+        shipB.handleCollision(shipA);
+        
+        // If the player ship is involved, show damage indicator
+        if (shipA === playerShip || shipB === playerShip) {
+          showDamageIndicator();
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Show damage indicator when player takes damage
+ */
+function showDamageIndicator(): void {
+  // Show damage indicator
+  damageIndicator.text = 'COLLISION!';
+  damageIndicator.visible = true;
+  
+  // Hide after a short delay
+  setTimeout(() => {
+    damageIndicator.visible = false;
+  }, 1000);
+}
+
+/**
+ * Update the health bar based on player ship hull
+ */
+function updateHealthBar(): void {
+  // Calculate health percentage
+  const healthPercent = playerShip.hull / playerShip.maxHull;
+  
+  // Update health bar width
+  healthBar.clear();
+  
+  // Choose color based on health percentage
+  let color = 0x00FF00; // Green
+  if (healthPercent < 0.3) {
+    color = 0xFF0000; // Red
+  } else if (healthPercent < 0.6) {
+    color = 0xFFFF00; // Yellow
+  }
+  
+  healthBar.beginFill(color);
+  healthBar.drawRect(0, 0, 200 * healthPercent, 15);
+  healthBar.endFill();
 } 
