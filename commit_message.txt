@@ -183,4 +183,87 @@ This commit fixes the ship orientation issue where ships weren't pointing in the
    - Explained how rotation and movement direction are related
 
 This fix ensures that ships visually point in the direction they're moving,
-making the game more intuitive and easier to play. 
+making the game more intuitive and easier to play.
+
+[Cursor] Improve collision physics with realistic bounce effect
+
+This commit enhances the collision response system with more realistic physics:
+
+1. Improved Collision Prevention:
+   - Added overlap detection and resolution to prevent ships from moving into each other
+   - Ships now properly separate when they collide
+   - Implemented immediate position correction to prevent clipping
+
+2. Added Realistic Bounce Physics:
+   - Implemented a light bounce effect based on physics principles
+   - Bounce intensity varies based on ship mass (destroyer, cruiser, battleship)
+   - Velocity changes are proportional to the collision impact
+   - Head-on collisions result in more significant speed reduction
+
+3. Enhanced Collision Response:
+   - Ships now slow down after collisions
+   - Added directional awareness (ships moving toward each other bounce differently)
+   - Bounce effect scales with relative speed and mass
+   - Maintained damage system based on collision force
+
+These changes make ship interactions more realistic and satisfying, while
+preventing the frustrating experience of ships overlapping or getting stuck
+together after collisions.
+
+[Cursor] Hide collision circle for cleaner visuals
+
+This commit makes a simple visual improvement:
+
+1. Hidden Collision Circle:
+   - Commented out the code that draws the red collision circle
+   - Collision detection still works exactly the same
+   - Ships now have a cleaner visual appearance
+   - Debugging visualization can be easily re-enabled if needed
+
+This change improves the game's visual presentation while maintaining all the
+collision functionality that was previously implemented.
+
+[Cursor] Add game over screen and respawn functionality
+
+This commit adds a game over condition and respawn system:
+
+1. Game Over Screen:
+   - Added a semi-transparent overlay when player ship is destroyed
+   - Created a "SHIP DESTROYED" message with dramatic styling
+   - Added a rejoin button with hover effects
+   - Game controls are disabled during game over state
+
+2. Respawn Functionality:
+   - Added client-side respawn request system
+   - Implemented server-side respawn handling
+   - Player gets a new ship with random position and rotation
+   - New ship may be a different type (destroyer, cruiser, battleship)
+   - Other players are notified when a player respawns
+
+3. Technical Improvements:
+   - Added mouse position tracking and hit testing
+   - Implemented button interaction with hover effects
+   - Added proper cleanup and state reset on respawn
+   - Ensured proper synchronization between client and server
+
+This feature completes the ship destruction and respawn cycle, giving players
+a clear indication when they've been destroyed and allowing them to rejoin
+the battle with a new ship.
+
+[Cursor] Fix TypeScript error in respawn functionality
+
+This commit fixes a TypeScript error in the NetworkManager class:
+
+1. Type Compatibility Issue:
+   - Fixed error: "Type 'string' is not assignable to type 'ShipType'"
+   - Added proper type definition for ShipType in NetworkManager.ts
+   - Updated Player interface to use the ShipType type instead of string
+   - Added appropriate type assertion when assigning player.type to ship.type
+
+2. Improved Type Safety:
+   - Ensured consistent type usage between Ship and NetworkManager classes
+   - Maintained the string literal union type ('destroyer' | 'cruiser' | 'battleship')
+   - Prevents potential runtime errors from invalid ship types
+
+This fix ensures type safety when handling ship respawning, particularly when
+the server assigns a new ship type to the player during respawn. 

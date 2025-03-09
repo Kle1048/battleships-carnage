@@ -15,12 +15,18 @@ let shipStatusText: PIXI.Text;
 let healthBar: PIXI.Graphics;
 let healthBarBg: PIXI.Graphics;
 let damageIndicator: PIXI.Text;
+let gameOverContainer: PIXI.Container;
+let gameOverText: PIXI.Text;
+let rejoinButton: PIXI.Graphics;
+let rejoinButtonText: PIXI.Text;
+let isGameOver: boolean = false;
 
 // Game world properties
 const WORLD_SIZE = 5000; // Size of the game world
 
 export function initGame(pixiApp: PIXI.Application): void {
   app = pixiApp;
+  isGameOver = false;
   
   // Create a container for the game world
   const gameWorld = new PIXI.Container();
@@ -30,20 +36,7 @@ export function initGame(pixiApp: PIXI.Application): void {
   createWaterBackground(gameWorld);
   
   // Create player ship
-  playerShip = new Ship({
-    x: WORLD_SIZE / 2,
-    y: WORLD_SIZE / 2,
-    rotation: 0,
-    speed: 0,
-    maxSpeed: 5,
-    acceleration: 0.1,
-    rotationSpeed: 0.05,
-    hull: 100,
-    type: 'destroyer',
-    playerId: 'local' // Local player always has 'local' as ID
-  });
-  
-  gameWorld.addChild(playerShip.sprite as any);
+  createPlayerShip(gameWorld);
   
   // Set up camera to follow player
   setupCamera(gameWorld);
@@ -137,8 +130,17 @@ export function initGame(pixiApp: PIXI.Application): void {
   damageIndicator.visible = false;
   uiContainer.addChild(damageIndicator as any);
   
+  // Create game over container (initially hidden)
+  createGameOverScreen();
+  
   // Set up game loop
   gameLoop = (delta: number) => {
+    if (isGameOver) {
+      // Only handle input for the rejoin button when game over
+      handleRejoinButton();
+      return;
+    }
+    
     // Handle ship controls with the new control scheme
     handleShipControls();
     
@@ -157,6 +159,11 @@ export function initGame(pixiApp: PIXI.Application): void {
     updateShipStatusText();
     updateHealthBar();
     
+    // Check if player ship is destroyed
+    if (playerShip && !playerShip.sprite.visible) {
+      showGameOver();
+    }
+    
     // Send position update to server
     networkManager.updatePosition();
     
@@ -166,6 +173,147 @@ export function initGame(pixiApp: PIXI.Application): void {
   
   // Start the game loop
   app.ticker.add(gameLoop);
+}
+
+/**
+ * Create the player ship
+ */
+function createPlayerShip(gameWorld: PIXI.Container): void {
+  playerShip = new Ship({
+    x: WORLD_SIZE / 2,
+    y: WORLD_SIZE / 2,
+    rotation: 0,
+    speed: 0,
+    maxSpeed: 5,
+    acceleration: 0.1,
+    rotationSpeed: 0.05,
+    hull: 100,
+    type: 'destroyer',
+    playerId: 'local' // Local player always has 'local' as ID
+  });
+  
+  gameWorld.addChild(playerShip.sprite as any);
+}
+
+/**
+ * Create the game over screen
+ */
+function createGameOverScreen(): void {
+  // Create container for game over screen
+  gameOverContainer = new PIXI.Container();
+  gameOverContainer.visible = false;
+  app.stage.addChild(gameOverContainer as any);
+  
+  // Semi-transparent background
+  const overlay = new PIXI.Graphics();
+  overlay.beginFill(0x000000, 0.7);
+  overlay.drawRect(0, 0, app.screen.width, app.screen.height);
+  overlay.endFill();
+  gameOverContainer.addChild(overlay as any);
+  
+  // Game over text
+  gameOverText = new PIXI.Text('SHIP DESTROYED', {
+    fontFamily: 'Arial',
+    fontSize: 48,
+    fontWeight: 'bold',
+    fill: 0xFF0000,
+    align: 'center',
+    dropShadow: true,
+    dropShadowColor: 0x000000,
+    dropShadowDistance: 4
+  });
+  gameOverText.anchor.set(0.5);
+  gameOverText.position.set(app.screen.width / 2, app.screen.height / 2 - 50);
+  gameOverContainer.addChild(gameOverText as any);
+  
+  // Rejoin button
+  rejoinButton = new PIXI.Graphics();
+  rejoinButton.beginFill(0x0077be);
+  rejoinButton.drawRoundedRect(0, 0, 200, 50, 10);
+  rejoinButton.endFill();
+  rejoinButton.position.set(app.screen.width / 2 - 100, app.screen.height / 2 + 50);
+  rejoinButton.interactive = true;
+  rejoinButton.cursor = 'pointer';
+  gameOverContainer.addChild(rejoinButton as any);
+  
+  // Rejoin button text
+  rejoinButtonText = new PIXI.Text('REJOIN GAME', {
+    fontFamily: 'Arial',
+    fontSize: 20,
+    fontWeight: 'bold',
+    fill: 0xFFFFFF,
+    align: 'center'
+  });
+  rejoinButtonText.anchor.set(0.5);
+  rejoinButtonText.position.set(app.screen.width / 2, app.screen.height / 2 + 75);
+  gameOverContainer.addChild(rejoinButtonText as any);
+  
+  // Add click event to rejoin button
+  rejoinButton.on('pointerdown', () => {
+    rejoinGame();
+  });
+}
+
+/**
+ * Show the game over screen
+ */
+function showGameOver(): void {
+  isGameOver = true;
+  gameOverContainer.visible = true;
+  
+  // Resize overlay to match current screen size
+  const overlay = gameOverContainer.children[0] as PIXI.Graphics;
+  overlay.clear();
+  overlay.beginFill(0x000000, 0.7);
+  overlay.drawRect(0, 0, app.screen.width, app.screen.height);
+  overlay.endFill();
+  
+  // Update positions for responsive layout
+  gameOverText.position.set(app.screen.width / 2, app.screen.height / 2 - 50);
+  rejoinButton.position.set(app.screen.width / 2 - 100, app.screen.height / 2 + 50);
+  rejoinButtonText.position.set(app.screen.width / 2, app.screen.height / 2 + 75);
+}
+
+/**
+ * Handle rejoin button hover and click
+ */
+function handleRejoinButton(): void {
+  // Check if mouse is over button (simple hover effect)
+  if (inputHandler.isMouseOver(rejoinButton)) {
+    rejoinButton.tint = 0x00AAFF; // Lighter blue on hover
+  } else {
+    rejoinButton.tint = 0xFFFFFF; // Normal color
+  }
+}
+
+/**
+ * Rejoin the game after being destroyed
+ */
+function rejoinGame(): void {
+  console.log('Rejoining game...');
+  
+  // Hide game over screen
+  isGameOver = false;
+  gameOverContainer.visible = false;
+  
+  // Request a new ship from the server
+  networkManager.requestRespawn();
+  
+  // Reset player ship
+  playerShip.hull = playerShip.maxHull;
+  playerShip.sprite.visible = true;
+  playerShip.updateDamageAppearance();
+  
+  // Reset ship position to a random location
+  playerShip.x = Math.random() * WORLD_SIZE;
+  playerShip.y = Math.random() * WORLD_SIZE;
+  playerShip.rotation = Math.random() * Math.PI * 2;
+  playerShip.speed = 0;
+  playerShip.setThrottle(ThrottleSetting.STOP);
+  playerShip.setRudder(RudderSetting.AHEAD);
+  
+  // Update sprite position
+  playerShip.updateSpritePosition();
 }
 
 function handleShipControls(): void {

@@ -240,8 +240,8 @@ export class Ship {
     }
     
     // Draw collision radius (for debugging)
-    graphics.lineStyle(1, 0xFF0000, 0.3);
-    graphics.drawCircle(0, 0, this.collisionRadius);
+    // graphics.lineStyle(1, 0xFF0000, 0.3);
+    // graphics.drawCircle(0, 0, this.collisionRadius);
     
     // Create a sprite from the graphics object
     const sprite = new PIXI.Sprite();
@@ -443,14 +443,11 @@ export class Ship {
     const relativeSpeed = Math.abs(this.speed - otherShip.speed);
     const thisImpactForce = Math.max(relativeSpeed * this.collisionDamageMultiplier, 0.5);
     
-    // Apply damage based on collision force
-    const damageAmount = Math.ceil(thisImpactForce * 10);
-    
     console.log(`Collision: ${this.playerId} hit ${otherShip.playerId}`);
-    console.log(`Damage amount: ${damageAmount}, Impact force: ${thisImpactForce}`);
+    console.log(`Damage amount: ${Math.ceil(thisImpactForce * 10)}, Impact force: ${thisImpactForce}`);
     
     // Always apply at least some damage on collision
-    const actualDamage = Math.max(damageAmount, 5);
+    const actualDamage = Math.max(Math.ceil(thisImpactForce * 10), 5);
     this.takeDamage(actualDamage);
     
     // Report damage to the server if this is the local player
@@ -458,11 +455,53 @@ export class Ship {
       networkManagerRef.reportDamage(otherShip.playerId, actualDamage);
     }
     
-    // Add collision response - push ships away from each other
-    const pushForce = 1.0; // Increased push force
-    const angle = Math.atan2(this.y - otherShip.y, this.x - otherShip.x);
-    this.x += Math.cos(angle) * pushForce;
-    this.y += Math.sin(angle) * pushForce;
+    // Calculate collision response vector (direction from other ship to this ship)
+    const dx = this.x - otherShip.x;
+    const dy = this.y - otherShip.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Normalize the direction vector
+    const nx = dx / distance;
+    const ny = dy / distance;
+    
+    // Calculate overlap (how much ships are intersecting)
+    const overlap = (this.collisionRadius + otherShip.collisionRadius) - distance;
+    
+    if (overlap > 0) {
+      // Move ships apart to prevent overlap (immediate separation)
+      const separationFactor = overlap / 2; // Split the separation evenly
+      this.x += nx * separationFactor;
+      this.y += ny * separationFactor;
+      
+      // Calculate bounce effect (light bounce)
+      const bounceFactor = 0.3; // Lower value = lighter bounce
+      
+      // Apply bounce based on relative mass (ship type)
+      const thisBounceMass = this.type === 'destroyer' ? 1 : 
+                            this.type === 'cruiser' ? 1.5 : 2;
+      const otherBounceMass = otherShip.type === 'destroyer' ? 1 : 
+                             otherShip.type === 'cruiser' ? 1.5 : 2;
+      
+      // Calculate bounce velocity components
+      const bounceVx = (this.speed * Math.cos(this.rotation) - otherShip.speed * Math.cos(otherShip.rotation)) * bounceFactor;
+      const bounceVy = (this.speed * Math.sin(this.rotation) - otherShip.speed * Math.sin(otherShip.rotation)) * bounceFactor;
+      
+      // Apply bounce effect to velocity (scaled by mass ratio)
+      const massRatio = otherBounceMass / (thisBounceMass + otherBounceMass);
+      
+      // Convert bounce velocity to speed and direction
+      const bounceSpeed = Math.sqrt(bounceVx * bounceVx + bounceVy * bounceVy) * massRatio;
+      
+      // Apply a small impulse in the direction away from the collision
+      this.speed -= bounceSpeed * 0.5; // Reduce speed slightly
+      
+      // If ships are moving toward each other, reverse direction slightly
+      const movingToward = (nx * Math.cos(this.rotation) + ny * Math.sin(this.rotation)) < 0;
+      if (movingToward) {
+        // Apply a small impulse in the opposite direction
+        this.speed *= 0.8; // Reduce speed more significantly when head-on
+      }
+    }
     
     // Create collision effect
     this.createCollisionEffect();

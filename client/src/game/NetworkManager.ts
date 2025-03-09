@@ -2,12 +2,15 @@ import * as PIXI from 'pixi.js';
 import { io, Socket } from 'socket.io-client';
 import { Ship } from './Ship';
 
+// Import ShipType from Ship.ts
+type ShipType = 'destroyer' | 'cruiser' | 'battleship';
+
 interface Player {
   id: string;
   x: number;
   y: number;
   rotation: number;
-  type: string;
+  type: ShipType;
   hull: number;
 }
 
@@ -191,6 +194,39 @@ export class NetworkManager {
         ship.updateDamageAppearance();
       }
     });
+    
+    // Handle respawn acceptance
+    this.socket.on('respawnAccepted', (player: Player) => {
+      console.log('Respawn accepted:', player);
+      
+      // Update local player with new position and type
+      if (this.localPlayer) {
+        this.localPlayer.x = player.x;
+        this.localPlayer.y = player.y;
+        this.localPlayer.rotation = player.rotation;
+        this.localPlayer.hull = player.hull;
+        this.localPlayer.maxHull = player.hull;
+        
+        // Update ship type if it changed
+        if (this.localPlayer.type !== player.type) {
+          this.localPlayer.type = player.type as ShipType;
+          
+          // Recreate sprite with new ship type
+          if (this.localPlayer.sprite.parent) {
+            this.localPlayer.sprite.parent.removeChild(this.localPlayer.sprite as any);
+          }
+          this.localPlayer.sprite = this.localPlayer.createShipSprite();
+          this.gameContainer.addChild(this.localPlayer.sprite as any);
+        }
+        
+        // Make ship visible again
+        this.localPlayer.sprite.visible = true;
+        
+        // Reset appearance
+        this.localPlayer.updateDamageAppearance();
+        this.localPlayer.updateSpritePosition();
+      }
+    });
   }
 
   private addPlayer(player: Player): void {
@@ -289,6 +325,18 @@ export class NetworkManager {
         targetId,
         amount
       });
+    }
+  }
+
+  /**
+   * Request respawn from the server
+   */
+  public requestRespawn(): void {
+    if (this.socket && this.connectionStatus === 'connected') {
+      console.log('Requesting respawn from server');
+      this.socket.emit('requestRespawn');
+    } else {
+      console.warn('Cannot request respawn: not connected to server');
     }
   }
 } 

@@ -146,6 +146,27 @@ io.on('connection', (socket) => {
     // Broadcast player left to all other players
     io.emit('playerLeft', socket.id);
   });
+
+  // Handle respawn request
+  socket.on('requestRespawn', () => {
+    console.log(`Player ${socket.id} requested respawn`);
+    
+    // Create a new ship for the player at a random position
+    players[socket.id] = {
+      id: socket.id,
+      x: Math.random() * 2500,
+      y: Math.random() * 2500,
+      rotation: Math.random() * Math.PI * 2,
+      type: getRandomShipType(),
+      hull: 100
+    };
+    
+    // Send the updated player data back
+    socket.emit('respawnAccepted', players[socket.id]);
+    
+    // Notify other players about the respawn
+    socket.broadcast.emit('playerJoined', players[socket.id]);
+  });
 });
 
 // Helper function to get a random ship type

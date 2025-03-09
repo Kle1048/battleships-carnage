@@ -3,6 +3,7 @@ export class InputHandler {
   private previousKeys: { [key: string]: boolean };
   private mousePosition: { x: number, y: number };
   private mouseButtons: { [button: number]: boolean };
+  private keyPressedThisFrame: { [key: string]: boolean } = {};
 
   constructor() {
     this.keys = {};
@@ -24,6 +25,7 @@ export class InputHandler {
 
   private handleKeyUp(event: KeyboardEvent): void {
     this.keys[event.code] = false;
+    this.keyPressedThisFrame[event.code] = false;
   }
 
   private handleMouseMove(event: MouseEvent): void {
@@ -44,8 +46,11 @@ export class InputHandler {
   }
 
   public isKeyPressed(code: string): boolean {
-    const isPressed = this.keys[code] === true && this.previousKeys[code] !== true;
-    return isPressed;
+    if (this.keys[code] === true && this.keyPressedThisFrame[code] !== true) {
+      this.keyPressedThisFrame[code] = true;
+      return true;
+    }
+    return false;
   }
 
   public isKeyReleased(code: string): boolean {
@@ -64,6 +69,12 @@ export class InputHandler {
   public update(): void {
     // Store current key states for next frame comparison
     this.previousKeys = { ...this.keys };
+    // Reset key pressed this frame if key is no longer down
+    for (const key in this.keyPressedThisFrame) {
+      if (this.keys[key] !== true) {
+        this.keyPressedThisFrame[key] = false;
+      }
+    }
   }
 
   public cleanup(): void {
@@ -73,5 +84,19 @@ export class InputHandler {
     window.removeEventListener('mousemove', this.handleMouseMove.bind(this));
     window.removeEventListener('mousedown', this.handleMouseDown.bind(this));
     window.removeEventListener('mouseup', this.handleMouseUp.bind(this));
+  }
+
+  public isMouseOver(object: any): boolean {
+    if (!object || !object.getBounds) {
+      return false;
+    }
+    
+    const bounds = object.getBounds();
+    return (
+      this.mousePosition.x >= bounds.x &&
+      this.mousePosition.x <= bounds.x + bounds.width &&
+      this.mousePosition.y >= bounds.y &&
+      this.mousePosition.y <= bounds.y + bounds.height
+    );
   }
 } 
