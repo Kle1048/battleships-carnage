@@ -46,9 +46,9 @@ interface ShipProps {
 
 // Collision data for different ship types
 const SHIP_COLLISION_DATA = {
-  destroyer: { radius: 25, width: 40, height: 15, damage: 1.0 },
-  cruiser: { radius: 35, width: 60, height: 20, damage: 1.5 },
-  battleship: { radius: 45, width: 80, height: 25, damage: 2.0 }
+  destroyer: { radius: 40, width: 40, height: 15, damage: 1.0 },
+  cruiser: { radius: 50, width: 60, height: 20, damage: 1.5 },
+  battleship: { radius: 60, width: 80, height: 25, damage: 2.0 }
 };
 
 // Array of bright, distinct colors that stand out against blue background
@@ -151,66 +151,93 @@ export class Ship {
   }
   
   createShipSprite(): PIXI.Sprite {
-    // Create a canvas for the ship
-    const canvas = document.createElement('canvas');
-    const size = this.type === 'destroyer' ? 40 : 
-                 this.type === 'cruiser' ? 50 : 60;
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
+    // Create a graphics object for the ship
+    const graphics = new PIXI.Graphics();
     
-    if (ctx) {
-      // Convert hex color to RGB for canvas
-      const r = (this.color >> 16) & 255;
-      const g = (this.color >> 8) & 255;
-      const b = this.color & 255;
-      const colorStr = `rgb(${r},${g},${b})`;
-      
-      // Draw ship with the assigned color
-      ctx.fillStyle = colorStr;
-      
-      // Draw ship shape based on type
-      ctx.beginPath();
-      
-      // Ship body
-      const width = this.type === 'destroyer' ? size * 0.5 : 
-                    this.type === 'cruiser' ? size * 0.6 : size * 0.7;
-      const length = this.type === 'destroyer' ? size * 0.8 : 
-                     this.type === 'cruiser' ? size * 0.85 : size * 0.9;
-      
-      // Draw a more detailed ship shape
-      ctx.moveTo(size/2, size/2 - length/2); // Front of ship
-      ctx.lineTo(size/2 + width/2, size/2 + length/3); // Right side
-      ctx.lineTo(size/2 + width/3, size/2 + length/2); // Right back corner
-      ctx.lineTo(size/2 - width/3, size/2 + length/2); // Left back corner
-      ctx.lineTo(size/2 - width/2, size/2 + length/3); // Left side
-      ctx.closePath();
-      ctx.fill();
-      
-      // Add details to make the ship more visible
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; // White for details
-      
-      // Draw a bridge/tower on the ship
-      const towerWidth = width * 0.3;
-      const towerHeight = length * 0.2;
-      const towerX = size/2 - towerWidth/2;
-      const towerY = size/2 - towerHeight/2;
-      ctx.fillRect(towerX, towerY, towerWidth, towerHeight);
-      
-      // Add an outline to make the ship stand out more
-      ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      
-      // Add player ID text for debugging (small and at the bottom)
-      ctx.fillStyle = 'white';
-      ctx.font = '8px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(this.playerId.substring(0, 4), size/2, size - 5);
+    // Set the fill color based on player ID
+    graphics.beginFill(this.color);
+    
+    // Draw the ship shape based on type
+    switch (this.type) {
+      case 'destroyer':
+        // Small, fast ship
+        graphics.drawPolygon([
+          -20, -7.5,
+          20, 0,
+          -20, 7.5
+        ]);
+        break;
+      case 'cruiser':
+        // Medium ship
+        graphics.drawPolygon([
+          -30, -10,
+          30, 0,
+          -30, 10
+        ]);
+        break;
+      case 'battleship':
+        // Large, powerful ship
+        graphics.drawPolygon([
+          -40, -12.5,
+          40, 0,
+          -40, 12.5
+        ]);
+        break;
     }
     
-    const texture = PIXI.Texture.from(canvas);
-    const sprite = new PIXI.Sprite(texture);
+    graphics.endFill();
+    
+    // Add details to the ship (bridge/tower)
+    graphics.beginFill(0xFFFFFF);
+    
+    switch (this.type) {
+      case 'destroyer':
+        graphics.drawRect(-5, -3, 10, 6);
+        break;
+      case 'cruiser':
+        graphics.drawRect(-7, -5, 14, 10);
+        break;
+      case 'battleship':
+        graphics.drawRect(-10, -7, 20, 14);
+        break;
+    }
+    
+    graphics.endFill();
+    
+    // Add outline
+    graphics.lineStyle(1, 0x000000);
+    
+    switch (this.type) {
+      case 'destroyer':
+        graphics.drawPolygon([
+          -20, -7.5,
+          20, 0,
+          -20, 7.5
+        ]);
+        break;
+      case 'cruiser':
+        graphics.drawPolygon([
+          -30, -10,
+          30, 0,
+          -30, 10
+        ]);
+        break;
+      case 'battleship':
+        graphics.drawPolygon([
+          -40, -12.5,
+          40, 0,
+          -40, 12.5
+        ]);
+        break;
+    }
+    
+    // Draw collision radius (for debugging)
+    graphics.lineStyle(1, 0xFF0000, 0.3);
+    graphics.drawCircle(0, 0, this.collisionRadius);
+    
+    // Create a sprite from the graphics object
+    const sprite = new PIXI.Sprite();
+    sprite.addChild(graphics as any);
     
     // Set anchor to center
     sprite.anchor.set(0.5);
@@ -374,6 +401,12 @@ export class Ship {
     const distance = Math.sqrt(dx * dx + dy * dy);
     const minDistance = this.collisionRadius + otherShip.collisionRadius;
     
+    // Debug collision
+    if (distance < minDistance) {
+      console.log(`Collision check: ${this.playerId} and ${otherShip.playerId}`);
+      console.log(`Distance: ${distance}, Min Distance: ${minDistance}`);
+    }
+    
     return distance < minDistance;
   }
   
@@ -394,27 +427,31 @@ export class Ship {
     
     // Calculate collision force based on relative speed and mass
     const relativeSpeed = Math.abs(this.speed - otherShip.speed);
-    const thisImpactForce = relativeSpeed * this.collisionDamageMultiplier;
+    const thisImpactForce = Math.max(relativeSpeed * this.collisionDamageMultiplier, 0.5);
     
     // Apply damage based on collision force
     const damageAmount = Math.ceil(thisImpactForce * 10);
-    if (damageAmount > 0) {
-      this.takeDamage(damageAmount);
-      
-      // Report damage to the server if this is the local player
-      if (this.playerId === 'local' && networkManagerRef && otherShip.playerId !== 'local') {
-        networkManagerRef.reportDamage(otherShip.playerId, damageAmount);
-      }
-      
-      // Add collision response - push ships away from each other
-      const pushForce = 0.5;
-      const angle = Math.atan2(this.y - otherShip.y, this.x - otherShip.x);
-      this.x += Math.cos(angle) * pushForce;
-      this.y += Math.sin(angle) * pushForce;
-      
-      // Create collision effect
-      this.createCollisionEffect();
+    
+    console.log(`Collision: ${this.playerId} hit ${otherShip.playerId}`);
+    console.log(`Damage amount: ${damageAmount}, Impact force: ${thisImpactForce}`);
+    
+    // Always apply at least some damage on collision
+    const actualDamage = Math.max(damageAmount, 5);
+    this.takeDamage(actualDamage);
+    
+    // Report damage to the server if this is the local player
+    if (this.playerId === 'local' && networkManagerRef && otherShip.playerId !== 'local') {
+      networkManagerRef.reportDamage(otherShip.playerId, actualDamage);
     }
+    
+    // Add collision response - push ships away from each other
+    const pushForce = 1.0; // Increased push force
+    const angle = Math.atan2(this.y - otherShip.y, this.x - otherShip.x);
+    this.x += Math.cos(angle) * pushForce;
+    this.y += Math.sin(angle) * pushForce;
+    
+    // Create collision effect
+    this.createCollisionEffect();
   }
   
   /**

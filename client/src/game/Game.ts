@@ -113,7 +113,7 @@ export function initGame(pixiApp: PIXI.Application): void {
   healthBarBg.beginFill(0x333333);
   healthBarBg.drawRect(0, 0, 200, 15);
   healthBarBg.endFill();
-  healthBarBg.position.set(20, 50);
+  healthBarBg.position.set(app.screen.width / 2 - 100, 50);
   uiContainer.addChild(healthBarBg as any);
   
   // Create health bar
@@ -121,7 +121,7 @@ export function initGame(pixiApp: PIXI.Application): void {
   healthBar.beginFill(0x00FF00);
   healthBar.drawRect(0, 0, 200, 15);
   healthBar.endFill();
-  healthBar.position.set(20, 50);
+  healthBar.position.set(app.screen.width / 2 - 100, 50);
   uiContainer.addChild(healthBar as any);
   
   // Create damage indicator text
@@ -363,20 +363,42 @@ function checkCollisions(): void {
   // Get all ships from the network manager
   const ships = networkManager.getAllShips();
   
+  // Debug info
+  console.log(`Checking collisions among ${ships.length} ships`);
+  
   // Check for collisions between all pairs of ships
   for (let i = 0; i < ships.length; i++) {
     const shipA = ships[i];
     
-    for (let j = i + 1; j < ships.length; j++) {
-      const shipB = ships[j];
-      
-      // Skip if either ship is not visible (destroyed)
-      if (!shipA.sprite.visible || !shipB.sprite.visible) {
+    // Skip if ship is not visible (destroyed)
+    if (!shipA.sprite.visible) {
+      continue;
+    }
+    
+    for (let j = 0; j < ships.length; j++) {
+      // Skip self-collision
+      if (i === j) {
         continue;
       }
       
+      const shipB = ships[j];
+      
+      // Skip if ship is not visible (destroyed)
+      if (!shipB.sprite.visible) {
+        continue;
+      }
+      
+      // Debug distances
+      const dx = shipA.x - shipB.x;
+      const dy = shipA.y - shipB.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const minDistance = shipA.collisionRadius + shipB.collisionRadius;
+      
       // Check for collision
-      if (shipA.checkCollision(shipB)) {
+      if (distance < minDistance) {
+        console.log(`Collision detected between ${shipA.playerId} and ${shipB.playerId}!`);
+        console.log(`Distance: ${distance}, Min Distance: ${minDistance}`);
+        
         // Handle collision for both ships
         shipA.handleCollision(shipB);
         shipB.handleCollision(shipA);
@@ -425,4 +447,8 @@ function updateHealthBar(): void {
   healthBar.beginFill(color);
   healthBar.drawRect(0, 0, 200 * healthPercent, 15);
   healthBar.endFill();
+  
+  // Reposition health bar if window is resized
+  healthBar.position.set(app.screen.width / 2 - 100, 50);
+  healthBarBg.position.set(app.screen.width / 2 - 100, 50);
 } 

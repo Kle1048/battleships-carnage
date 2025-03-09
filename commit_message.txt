@@ -109,4 +109,29 @@ This commit adds collision detection and a ship damage system to the game:
    - Implemented ship destruction and respawning events
    - Server validates and broadcasts damage events
 
-These changes make the game more interactive and add consequences to ship collisions, bringing the gameplay closer to the requirements in the specification document. 
+These changes make the game more interactive and add consequences to ship collisions, bringing the gameplay closer to the requirements in the specification document.
+
+[Cursor] Fix collision detection and health bar positioning
+
+This commit addresses two issues with the collision detection and UI:
+
+1. Fixed Health Bar Positioning:
+   - Moved the health bar to the center of the screen
+   - Positioned it above the ship controls status
+   - Added automatic repositioning when window is resized
+
+2. Improved Collision Detection:
+   - Fixed issue where collisions weren't being detected between ships
+   - Increased collision radius for all ship types for better gameplay
+   - Added visual indicator of collision radius (red circle) for debugging
+   - Improved collision response with stronger push force
+   - Added minimum damage on collision to ensure feedback
+   - Added detailed debug logging for collision detection
+
+3. Enhanced Ship Visuals:
+   - Redesigned ship sprites using PIXI.Graphics for better performance
+   - Simplified ship shapes for clearer visual identification
+   - Added proper anchoring and positioning
+
+These changes make the game more playable by ensuring collisions work properly
+and improving the UI layout for better visibility of important game information. 

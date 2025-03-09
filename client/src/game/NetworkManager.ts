@@ -261,6 +261,11 @@ export class NetworkManager {
    * @returns Array of all ships
    */
   public getAllShips(): Ship[] {
+    // Make sure the local player is in the players map
+    if (this.localPlayer && !this.players.has('local')) {
+      this.players.set('local', this.localPlayer);
+    }
+    
     return Array.from(this.players.values());
   }
   
