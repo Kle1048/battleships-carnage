@@ -29,6 +29,12 @@ let projectilesContainer: PIXI.Container;
 // Mouse target indicator
 let mouseTargetIndicator: PIXI.Graphics;
 
+// Enemy indicator arrow
+let enemyIndicator: PIXI.Graphics;
+const ENEMY_INDICATOR_DISTANCE = 250; // Increased distance from player ship to indicator (was 100)
+const ENEMY_INDICATOR_SIZE = 8; // Size factor for the arrow (smaller than before)
+const ENEMY_INDICATOR_OPACITY = 0.7; // Reduced opacity to make it less prominent
+
 // Game world properties
 const WORLD_SIZE = 5000; // Size of the game world
 
@@ -55,6 +61,12 @@ export function initGame(pixiApp: PIXI.Application): void {
   mouseTargetIndicator.endFill();
   mouseTargetIndicator.visible = false;
   gameWorld.addChild(mouseTargetIndicator as any);
+  
+  // Create enemy indicator arrow
+  enemyIndicator = new PIXI.Graphics();
+  createEnemyIndicator();
+  enemyIndicator.visible = false;
+  gameWorld.addChild(enemyIndicator as any);
   
   // Create player ship
   createPlayerShip(gameWorld);
@@ -217,6 +229,9 @@ export function initGame(pixiApp: PIXI.Application): void {
     
     // Update mouse target indicator
     updateMouseTargetIndicator();
+    
+    // Update enemy indicator
+    updateEnemyIndicator();
   };
   
   // Start the game loop
@@ -906,4 +921,83 @@ function updateMouseTargetIndicator(): void {
   mouseTargetIndicator.x = worldMousePos.x;
   mouseTargetIndicator.y = worldMousePos.y;
   mouseTargetIndicator.visible = true;
+}
+
+function createEnemyIndicator(): void {
+  // Clear previous graphics
+  enemyIndicator.clear();
+  
+  // Draw arrow shape with reduced size and opacity
+  enemyIndicator.beginFill(0xff0000, ENEMY_INDICATOR_OPACITY);
+  
+  // Arrow pointing up by default (will be rotated to point at enemy)
+  // Reduced size by using ENEMY_INDICATOR_SIZE
+  enemyIndicator.moveTo(0, -ENEMY_INDICATOR_SIZE); // Tip of the arrow
+  enemyIndicator.lineTo(ENEMY_INDICATOR_SIZE * 0.6, ENEMY_INDICATOR_SIZE * 0.3); // Bottom right
+  enemyIndicator.lineTo(0, 0); // Bottom middle indent
+  enemyIndicator.lineTo(-ENEMY_INDICATOR_SIZE * 0.6, ENEMY_INDICATOR_SIZE * 0.3); // Bottom left
+  enemyIndicator.lineTo(0, -ENEMY_INDICATOR_SIZE); // Back to tip
+  
+  enemyIndicator.endFill();
+  
+  // Remove the white border - arrow is now only red
+}
+
+function updateEnemyIndicator(): void {
+  if (!playerShip || isGameOver) {
+    enemyIndicator.visible = false;
+    return;
+  }
+  
+  // Find the nearest enemy ship
+  const nearestEnemy = findNearestEnemyShip();
+  
+  if (nearestEnemy) {
+    // Calculate angle to enemy
+    const dx = nearestEnemy.x - playerShip.x;
+    const dy = nearestEnemy.y - playerShip.y;
+    const angleToEnemy = Math.atan2(dy, dx);
+    
+    // Position the indicator at a fixed distance from the player
+    const indicatorX = playerShip.x + Math.cos(angleToEnemy) * ENEMY_INDICATOR_DISTANCE;
+    const indicatorY = playerShip.y + Math.sin(angleToEnemy) * ENEMY_INDICATOR_DISTANCE;
+    
+    // Update indicator position and rotation
+    enemyIndicator.x = indicatorX;
+    enemyIndicator.y = indicatorY;
+    enemyIndicator.rotation = angleToEnemy + Math.PI/2; // Add 90 degrees to point in the right direction
+    enemyIndicator.visible = true;
+  } else {
+    // No enemies found, hide the indicator
+    enemyIndicator.visible = false;
+  }
+}
+
+function findNearestEnemyShip(): Ship | null {
+  if (!playerShip) return null;
+  
+  const ships = networkManager.getAllShips();
+  let nearestShip: Ship | null = null;
+  let minDistance = Number.MAX_VALUE;
+  
+  for (const ship of ships) {
+    // Skip player's own ship
+    if (ship === playerShip) continue;
+    
+    // Skip destroyed ships
+    if (ship.hull <= 0) continue;
+    
+    // Calculate distance
+    const dx = ship.x - playerShip.x;
+    const dy = ship.y - playerShip.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Update nearest ship if this one is closer
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearestShip = ship;
+    }
+  }
+  
+  return nearestShip;
 } 

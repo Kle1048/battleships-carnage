@@ -359,4 +359,29 @@ This commit addresses TypeScript errors in the GameCanvas component:
 
 These changes fix all TypeScript errors while preserving the functionality
 that hides the mouse cursor and prevents the context menu from appearing
-when right-clicking in the game canvas. 
+when right-clicking in the game canvas.
+
+[Cursor] Add enemy indicator arrow
+
+This commit adds a helpful navigation feature to the game:
+
+1. Enemy Indicator Arrow:
+   - Added a small red arrow with white border that points to the nearest enemy
+   - Arrow dynamically updates to always point toward the closest enemy ship
+   - Positioned at a fixed distance from the player's ship
+   - Automatically hides when no enemies are available
+
+2. Nearest Enemy Detection:
+   - Implemented algorithm to find the closest enemy ship
+   - Calculates distances to all ships in real-time
+   - Skips player's own ship and destroyed ships
+   - Updates continuously as ships move around
+
+3. Visual Design:
+   - Created a clear, easy-to-see arrow shape
+   - Used red color with white outline for visibility against the water
+   - Arrow rotates smoothly to track enemy movement
+   - Size and distance are balanced for good visibility without obstruction
+
+This feature helps players locate enemies more easily, especially when they're
+off-screen or difficult to spot, improving the overall gameplay experience. 

@@ -113,20 +113,27 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - Ships can be upgraded through combat and collecting wreckage
 - Realistic naval physics with momentum-based movement
 
-### Current Task: Fix TypeScript Errors in Event Listeners
+### Current Task: Add Enemy Indicator Arrow
 
-#### Issues Fixed
-[X] Fix TypeScript errors in the contextmenu event listener
-[X] Fix type issues with the MouseEvent parameter
-[X] Ensure proper handling of possibly undefined objects
+#### Features Implemented
+[X] Create a small arrow that points towards the nearest enemy
+[X] Calculate the nearest enemy ship dynamically
+[X] Rotate the arrow to point in the correct direction
+[X] Position the arrow at a fixed distance from the player ship
+[X] Update the arrow position and rotation in real-time
 
-#### Implementation Approach
-1. Added proper type assertions for the PIXI.Application view property
-   - Cast app.view to HTMLCanvasElement to access standard DOM methods
-2. Fixed the event listener function signature to match expected types
-   - Changed MouseEvent to Event to match the standard DOM event type
-3. Added null checks to prevent errors with undefined objects
-   - Used separate variables with type assertions for clarity
+#### Implementation Details
+1. Added a new PIXI.Graphics object for the arrow indicator
+   - Created a red arrow with white border for visibility
+   - Arrow is positioned at a fixed distance from the player ship
+2. Created a function to find the nearest enemy ship
+   - Calculates distance to all ships in the game
+   - Skips player's own ship and destroyed ships
+   - Returns the closest enemy ship
+3. Implemented real-time updates for the arrow
+   - Calculates angle between player and nearest enemy
+   - Updates arrow rotation to point towards the enemy
+   - Hides the arrow when no enemies are found
 
 ### Progress on Combat System
 [X] Phase 1: Project Setup & Basic Game Engine
