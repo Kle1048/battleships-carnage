@@ -45,15 +45,23 @@ export class NetworkManager {
     console.log('Connecting to server...');
     this.connectionStatus = 'connecting';
     
-    // Connect to the server with error handling
-    this.socket = io(this.serverUrl, {
-      reconnectionAttempts: this.maxReconnectAttempts,
-      timeout: 10000,
-      transports: ['websocket', 'polling']
-    });
-    
-    // Set up event listeners
-    this.setupEventListeners();
+    try {
+      console.log(`Attempting to connect to: ${this.serverUrl}`);
+      
+      // Connect to the server with error handling
+      this.socket = io(this.serverUrl, {
+        reconnectionAttempts: this.maxReconnectAttempts,
+        timeout: 10000,
+        transports: ['websocket', 'polling'],
+        forceNew: true
+      });
+      
+      // Set up event listeners
+      this.setupEventListeners();
+    } catch (error) {
+      console.error('Failed to initialize socket connection:', error);
+      this.connectionStatus = 'disconnected';
+    }
   }
 
   private setupEventListeners(): void {
@@ -71,7 +79,13 @@ export class NetworkManager {
       this.reconnectAttempts++;
       
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        console.error('Max reconnection attempts reached. Please check server status.');
+        console.error(`Max reconnection attempts reached (${this.maxReconnectAttempts}). Please check server status.`);
+        console.error(`Server URL: ${this.serverUrl}`);
+        console.error('Possible issues:');
+        console.error('1. Server is not running');
+        console.error('2. Firewall is blocking the connection');
+        console.error('3. IP address is incorrect');
+        console.error('4. Network issues');
         this.connectionStatus = 'disconnected';
       }
     });

@@ -1,3 +1,27 @@
+[Cursor] Improve ship controls display and fix TypeScript error
+
+This commit makes the following improvements:
+
+1. Fixed TypeScript error:
+   - Added type assertion to the addChild method call in the Ship class
+   - Resolves the error: "Argument of type 'Text' is not assignable to parameter of type 'DisplayObject'"
+
+2. Improved UI for ship controls:
+   - Moved ship controls display from individual ships to the top of the screen
+   - Created a dedicated UI container that stays fixed on screen
+   - Added separate text elements for:
+     - Connection status (left side)
+     - Ship controls reference (right side)
+     - Current throttle and rudder settings (center)
+   - Improved text styling with drop shadows and better contrast
+   - Used nautical terminology for throttle and rudder settings
+
+3. Removed redundant status text from ships
+   - Simplified ship rendering
+   - Improved performance by reducing text objects
+
+These changes make the game more user-friendly and provide clearer feedback about the current ship controls.
+
 [Cursor] Implement realistic ship controls with discrete throttle and rudder settings
 
 This commit adds more realistic ship controls to the game:
@@ -18,3 +42,41 @@ This commit adds more realistic ship controls to the game:
   - Q/E/R: Direct rudder settings
   - Space: Center rudder
 - Updated documentation in README.md 
+
+[Cursor] Fix TypeScript error in Ship class
+
+This commit fixes a TypeScript error related to PixiJS v7 type compatibility:
+
+- Added type assertion to the addChild method call in the Ship class
+- Resolves the error: "Argument of type 'Text' is not assignable to parameter of type 'DisplayObject'"
+- This is a similar issue to the other PixiJS type compatibility errors we fixed earlier 
+
+[Cursor] Fix network connection issues for local multiplayer
+
+This commit addresses several issues related to network connectivity for local multiplayer:
+
+1. Fixed IP address configuration:
+   - Updated .env file with the correct local IP address
+   - Added proper error handling for connection failures
+
+2. Enhanced server configuration:
+   - Updated Content Security Policy to allow connections from local network
+   - Configured server to listen on all network interfaces
+   - Added better CORS configuration for cross-origin requests
+
+3. Improved client-side error handling:
+   - Added detailed error messages for connection issues
+   - Implemented better reconnection logic
+   - Enhanced status display with more information
+
+4. Added network testing tools:
+   - Created a dedicated network test page
+   - Added port checking utility
+   - Created firewall configuration helper
+
+5. Added firewall configuration:
+   - Created batch file to add Windows Firewall rule
+   - Documented network setup process
+
+These changes enable playing the game with multiple devices on the local network,
+making it possible to test the multiplayer functionality with real players. 

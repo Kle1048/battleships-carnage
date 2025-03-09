@@ -76,9 +76,6 @@ export class Ship {
   // PIXI sprite
   sprite: PIXI.Sprite;
   
-  // Status text for debugging
-  statusText: PIXI.Text;
-  
   constructor(props: ShipProps) {
     // Set initial properties
     this.x = props.x;
@@ -97,19 +94,6 @@ export class Ship {
     
     // Create ship sprite based on type
     this.sprite = this.createShipSprite();
-    
-    // Create status text for debugging
-    this.statusText = new PIXI.Text('', {
-      fontFamily: 'Arial',
-      fontSize: 10,
-      fill: 0xFFFFFF,
-      align: 'center',
-      stroke: 0x000000,
-      strokeThickness: 2
-    });
-    this.statusText.anchor.set(0.5, 0);
-    this.statusText.position.set(0, 30);
-    this.sprite.addChild(this.statusText);
     
     // Set initial position and rotation
     this.updateSpritePosition();
@@ -205,33 +189,6 @@ export class Ship {
     this.sprite.x = this.x;
     this.sprite.y = this.y;
     this.sprite.rotation = this.rotation;
-    
-    // Update status text
-    this.updateStatusText();
-  }
-  
-  updateStatusText(): void {
-    // Show throttle and rudder settings
-    let throttleText = '';
-    switch (this.throttleSetting) {
-      case ThrottleSetting.FLANK: throttleText = 'FLANK'; break;
-      case ThrottleSetting.HALF: throttleText = 'HALF'; break;
-      case ThrottleSetting.SLOW: throttleText = 'SLOW'; break;
-      case ThrottleSetting.STOP: throttleText = 'STOP'; break;
-      case ThrottleSetting.REVERSE_HALF: throttleText = 'REV HALF'; break;
-      case ThrottleSetting.REVERSE_FULL: throttleText = 'REV FULL'; break;
-    }
-    
-    let rudderText = '';
-    switch (this.rudderSetting) {
-      case RudderSetting.FULL_LEFT: rudderText = 'FULL LEFT'; break;
-      case RudderSetting.HALF_LEFT: rudderText = 'HALF LEFT'; break;
-      case RudderSetting.AHEAD: rudderText = 'AHEAD'; break;
-      case RudderSetting.HALF_RIGHT: rudderText = 'HALF RIGHT'; break;
-      case RudderSetting.FULL_RIGHT: rudderText = 'FULL RIGHT'; break;
-    }
-    
-    this.statusText.text = `${throttleText}\n${rudderText}`;
   }
   
   // Set throttle to a specific setting

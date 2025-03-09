@@ -171,6 +171,9 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 [X] Improve error handling for network connections
 [X] Add connection status display
 [X] Configure server for network access
+[X] Fix client-server connection issues
+[X] Add network test page for easier debugging
+[X] Update firewall settings for local network play
 
 ### Version 0.1.0 Achievements
 [X] Basic ship movement with physics
@@ -182,6 +185,7 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 [X] Enhanced water background for better contrast
 [X] Local network multiplayer support
 [X] Realistic ship controls with throttle and rudder settings
+[X] Network test page for connection debugging
 
 ### Next Steps for v0.2.0
 [ ] Implement collision detection

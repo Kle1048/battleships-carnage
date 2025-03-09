@@ -10,6 +10,8 @@ let inputHandler: InputHandler;
 let networkManager: NetworkManager;
 let gameLoop: (delta: number) => void;
 let statusText: PIXI.Text;
+let controlsText: PIXI.Text;
+let shipStatusText: PIXI.Text;
 
 // Game world properties
 const WORLD_SIZE = 5000; // Size of the game world
@@ -50,7 +52,11 @@ export function initGame(pixiApp: PIXI.Application): void {
   networkManager = new NetworkManager(gameWorld);
   networkManager.setLocalPlayer(playerShip);
   
-  // Create status text
+  // Create UI container (fixed to screen, not affected by camera)
+  const uiContainer = new PIXI.Container();
+  app.stage.addChild(uiContainer as any);
+  
+  // Create connection status text
   statusText = new PIXI.Text('Connecting to server...', {
     fontFamily: 'Arial',
     fontSize: 16,
@@ -63,7 +69,38 @@ export function initGame(pixiApp: PIXI.Application): void {
     strokeThickness: 2
   });
   statusText.position.set(20, 20);
-  app.stage.addChild(statusText as any);
+  uiContainer.addChild(statusText as any);
+  
+  // Create ship controls text
+  controlsText = new PIXI.Text('', {
+    fontFamily: 'Arial',
+    fontSize: 14,
+    fill: 0xFFFFFF,
+    align: 'left',
+    dropShadow: true,
+    dropShadowColor: 0x000000,
+    dropShadowDistance: 2,
+    stroke: 0x000000,
+    strokeThickness: 1
+  });
+  controlsText.position.set(app.screen.width - 220, 20);
+  uiContainer.addChild(controlsText as any);
+  
+  // Create ship status text (shows current throttle and rudder settings)
+  shipStatusText = new PIXI.Text('', {
+    fontFamily: 'Arial',
+    fontSize: 16,
+    fill: 0xFFD700, // Gold color
+    align: 'center',
+    dropShadow: true,
+    dropShadowColor: 0x000000,
+    dropShadowDistance: 2,
+    stroke: 0x000000,
+    strokeThickness: 2
+  });
+  shipStatusText.anchor.set(0.5, 0);
+  shipStatusText.position.set(app.screen.width / 2, 20);
+  uiContainer.addChild(shipStatusText as any);
   
   // Set up game loop
   gameLoop = (delta: number) => {
@@ -76,8 +113,10 @@ export function initGame(pixiApp: PIXI.Application): void {
     // Update camera position to follow player
     updateCamera(gameWorld);
     
-    // Update status text
-    updateStatusText();
+    // Update UI texts
+    updateConnectionStatus();
+    updateControlsText();
+    updateShipStatusText();
     
     // Send position update to server
     networkManager.updatePosition();
@@ -137,7 +176,7 @@ function handleShipControls(): void {
   }
 }
 
-function updateStatusText(): void {
+function updateConnectionStatus(): void {
   const status = networkManager.getConnectionStatus();
   let text = '';
   let color = 0xffffff;
@@ -161,21 +200,49 @@ function updateStatusText(): void {
   const serverUrl = process.env.REACT_APP_SERVER_URL || 'http://localhost:3001';
   text += `\nServer: ${serverUrl}`;
   
-  // Add controls info
-  text += '\nControls:';
-  text += '\nW/S - Increase/Decrease Throttle';
-  text += '\nA/D - Turn Rudder Left/Right';
-  text += '\nSpace - Center Rudder';
-  text += '\n1-6 - Direct Throttle Settings';
-  text += '\nQ/E - Full Rudder Left/Right';
-  text += '\nR - Center Rudder';
-  
   // Add position info
   text += `\nPosition: X: ${Math.round(playerShip.x)}, Y: ${Math.round(playerShip.y)}`;
   
   // Update text
   statusText.text = text;
   statusText.style.fill = color;
+}
+
+function updateControlsText(): void {
+  // Display controls information
+  let text = 'Controls:';
+  text += '\nW/S - Throttle Up/Down';
+  text += '\nA/D - Rudder Left/Right';
+  text += '\nSpace - Center Rudder';
+  text += '\n1-6 - Direct Throttle';
+  text += '\nQ/E - Full Rudder L/R';
+  text += '\nR - Center Rudder';
+  
+  controlsText.text = text;
+}
+
+function updateShipStatusText(): void {
+  // Show current throttle and rudder settings
+  let throttleText = '';
+  switch (playerShip.throttleSetting) {
+    case ThrottleSetting.FLANK: throttleText = 'FLANK SPEED'; break;
+    case ThrottleSetting.HALF: throttleText = 'HALF AHEAD'; break;
+    case ThrottleSetting.SLOW: throttleText = 'SLOW AHEAD'; break;
+    case ThrottleSetting.STOP: throttleText = 'ALL STOP'; break;
+    case ThrottleSetting.REVERSE_HALF: throttleText = 'REVERSE HALF'; break;
+    case ThrottleSetting.REVERSE_FULL: throttleText = 'REVERSE FULL'; break;
+  }
+  
+  let rudderText = '';
+  switch (playerShip.rudderSetting) {
+    case RudderSetting.FULL_LEFT: rudderText = 'FULL RUDDER LEFT'; break;
+    case RudderSetting.HALF_LEFT: rudderText = 'HALF RUDDER LEFT'; break;
+    case RudderSetting.AHEAD: rudderText = 'RUDDER AMIDSHIPS'; break;
+    case RudderSetting.HALF_RIGHT: rudderText = 'HALF RUDDER RIGHT'; break;
+    case RudderSetting.FULL_RIGHT: rudderText = 'FULL RUDDER RIGHT'; break;
+  }
+  
+  shipStatusText.text = `${throttleText}\n${rudderText}`;
 }
 
 function createWaterBackground(container: PIXI.Container): void {

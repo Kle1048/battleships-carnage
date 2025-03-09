@@ -19,7 +19,7 @@ app.use(cors({
 app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; connect-src 'self' ws: wss: http://localhost:3001; img-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io; style-src 'self' 'unsafe-inline';"
+    "default-src 'self'; connect-src 'self' ws: wss: http://localhost:3001 http://192.168.178.44:3001; img-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.socket.io; style-src 'self' 'unsafe-inline';"
   );
   next();
 });
@@ -109,49 +109,43 @@ io.on('connection', (socket) => {
   });
 });
 
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../../client/build')));
-  
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../../client/build/index.html'));
-  });
-} else {
-  // Serve the test.html file
-  app.get('/test', (req, res) => {
-    res.sendFile(path.join(__dirname, '../../client/public/test.html'));
-  });
-  
-  // Serve a simple status page
-  app.get('/', (req, res) => {
-    res.send(`
-      <html>
-        <head>
-          <title>Battleships MMO Server</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
-            h1 { color: #0077be; }
-            .status { padding: 20px; background-color: #f0f8ff; border-left: 5px solid #0077be; }
-            .players { margin-top: 20px; }
-            .test-link { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #0077be; color: white; text-decoration: none; border-radius: 4px; }
-          </style>
-        </head>
-        <body>
-          <h1>Battleships MMO Server</h1>
-          <div class="status">
-            <p>Server is running on port ${PORT}</p>
-            <p>Connected players: ${Object.keys(players).length}</p>
-          </div>
-          <div class="players">
-            <h2>Active Players</h2>
-            <pre>${JSON.stringify(players, null, 2)}</pre>
-          </div>
-          <a href="/test" class="test-link">Open Connection Test Page</a>
-        </body>
-      </html>
-    `);
-  });
-}
+// Serve static files
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Serve the test.html file
+app.get('/test', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/network_test.html'));
+});
+
+// Serve a simple status page
+app.get('/', (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>Battleships MMO Server</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
+          h1 { color: #0077be; }
+          .status { padding: 20px; background-color: #f0f8ff; border-left: 5px solid #0077be; }
+          .players { margin-top: 20px; }
+          .test-link { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #0077be; color: white; text-decoration: none; border-radius: 4px; }
+        </style>
+      </head>
+      <body>
+        <h1>Battleships MMO Server</h1>
+        <div class="status">
+          <p>Server is running on port ${PORT}</p>
+          <p>Connected players: ${Object.keys(players).length}</p>
+        </div>
+        <div class="players">
+          <h2>Active Players</h2>
+          <pre>${JSON.stringify(players, null, 2)}</pre>
+        </div>
+        <a href="/test" class="test-link">Open Connection Test Page</a>
+      </body>
+    </html>
+  `);
+});
 
 // Start the server
 const PORT = process.env.PORT || 3001;
