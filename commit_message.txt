@@ -163,4 +163,24 @@ This commit addresses several gameplay and UI issues:
    - Maintained centered alignment for better readability
 
 These changes improve the gameplay experience by providing better initial
-positioning, clearer visual feedback, and a more intuitive UI layout. 
+positioning, clearer visual feedback, and a more intuitive UI layout.
+
+[Cursor] Fix ship orientation and movement direction
+
+This commit fixes the ship orientation issue where ships weren't pointing in their movement direction:
+
+1. Fixed Ship Movement Direction:
+   - Updated the movement calculations to match PixiJS coordinate system
+   - Changed from using sin/cos to cos/sin for proper directional movement
+   - Ships now move in the direction they're pointing
+
+2. Fixed Drift Calculations:
+   - Updated drift component calculations to match the new movement system
+   - Maintained the same drift behavior but with correct orientation
+
+3. Added Detailed Comments:
+   - Clarified the coordinate system and rotation conventions
+   - Explained how rotation and movement direction are related
+
+This fix ensures that ships visually point in the direction they're moving,
+making the game more intuitive and easier to play. 

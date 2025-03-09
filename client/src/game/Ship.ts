@@ -162,7 +162,7 @@ export class Ship {
     // The sprite will be rotated to match the ship's rotation
     switch (this.type) {
       case 'destroyer':
-        // Small, fast ship
+        // Small, fast ship - pointing right (0 radians)
         graphics.drawPolygon([
           20, 0,   // Front (nose)
           -10, -7.5, // Left back
@@ -171,7 +171,7 @@ export class Ship {
         ]);
         break;
       case 'cruiser':
-        // Medium ship
+        // Medium ship - pointing right (0 radians)
         graphics.drawPolygon([
           30, 0,   // Front (nose)
           -15, -10, // Left back
@@ -180,7 +180,7 @@ export class Ship {
         ]);
         break;
       case 'battleship':
-        // Large, powerful ship
+        // Large, powerful ship - pointing right (0 radians)
         graphics.drawPolygon([
           40, 0,   // Front (nose)
           -20, -12.5, // Left back
@@ -256,6 +256,10 @@ export class Ship {
   updateSpritePosition(): void {
     this.sprite.x = this.x;
     this.sprite.y = this.y;
+    
+    // In PixiJS, rotation is clockwise, with 0 pointing to the right
+    // Our ship sprites are drawn pointing to the right (0 radians)
+    // So we can directly use the ship's rotation value
     this.sprite.rotation = this.rotation;
   }
   
@@ -378,14 +382,16 @@ export class Ship {
     const driftFactor = 0.1 * speedFactor * Math.abs(this.rudderSetting);
     const driftAngle = this.rotation + (this.rudderSetting < 0 ? -Math.PI/2 : Math.PI/2);
     
-    // Update position based on speed, rotation, and drift
-    this.x += Math.sin(this.rotation) * this.speed * delta;
-    this.y -= Math.cos(this.rotation) * this.speed * delta;
+    // Update position based on speed and rotation
+    // In PixiJS, 0 radians points to the right, and rotation is clockwise
+    // So we use sin for x and -cos for y to move in the direction of rotation
+    this.x += Math.cos(this.rotation) * this.speed * delta;
+    this.y += Math.sin(this.rotation) * this.speed * delta;
     
     // Add drift component
     if (Math.abs(this.rudderSetting) > 0 && Math.abs(this.speed) > 0.5) {
-      this.x += Math.sin(driftAngle) * driftFactor * delta;
-      this.y -= Math.cos(driftAngle) * driftFactor * delta;
+      this.x += Math.cos(driftAngle) * driftFactor * delta;
+      this.y += Math.sin(driftAngle) * driftFactor * delta;
     }
     
     // Update sprite position and rotation
