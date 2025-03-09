@@ -46,9 +46,9 @@ interface ShipProps {
 
 // Collision data for different ship types
 const SHIP_COLLISION_DATA = {
-  destroyer: { radius: 40, width: 40, height: 15, damage: 1.0 },
-  cruiser: { radius: 50, width: 60, height: 20, damage: 1.5 },
-  battleship: { radius: 60, width: 80, height: 25, damage: 2.0 }
+  destroyer: { radius: 20, width: 40, height: 15, damage: 1.0 },
+  cruiser: { radius: 30, width: 60, height: 20, damage: 1.5 },
+  battleship: { radius: 40, width: 80, height: 25, damage: 2.0 }
 };
 
 // Array of bright, distinct colors that stand out against blue background
@@ -158,29 +158,34 @@ export class Ship {
     graphics.beginFill(this.color);
     
     // Draw the ship shape based on type
+    // Note: We're drawing the ship pointing to the right (0 radians)
+    // The sprite will be rotated to match the ship's rotation
     switch (this.type) {
       case 'destroyer':
         // Small, fast ship
         graphics.drawPolygon([
-          -20, -7.5,
-          20, 0,
-          -20, 7.5
+          20, 0,   // Front (nose)
+          -10, -7.5, // Left back
+          -5, 0,   // Back middle
+          -10, 7.5   // Right back
         ]);
         break;
       case 'cruiser':
         // Medium ship
         graphics.drawPolygon([
-          -30, -10,
-          30, 0,
-          -30, 10
+          30, 0,   // Front (nose)
+          -15, -10, // Left back
+          -7, 0,   // Back middle
+          -15, 10   // Right back
         ]);
         break;
       case 'battleship':
         // Large, powerful ship
         graphics.drawPolygon([
-          -40, -12.5,
-          40, 0,
-          -40, 12.5
+          40, 0,   // Front (nose)
+          -20, -12.5, // Left back
+          -10, 0,   // Back middle
+          -20, 12.5   // Right back
         ]);
         break;
     }
@@ -210,23 +215,26 @@ export class Ship {
     switch (this.type) {
       case 'destroyer':
         graphics.drawPolygon([
-          -20, -7.5,
-          20, 0,
-          -20, 7.5
+          20, 0,   // Front (nose)
+          -10, -7.5, // Left back
+          -5, 0,   // Back middle
+          -10, 7.5   // Right back
         ]);
         break;
       case 'cruiser':
         graphics.drawPolygon([
-          -30, -10,
-          30, 0,
-          -30, 10
+          30, 0,   // Front (nose)
+          -15, -10, // Left back
+          -7, 0,   // Back middle
+          -15, 10   // Right back
         ]);
         break;
       case 'battleship':
         graphics.drawPolygon([
-          -40, -12.5,
-          40, 0,
-          -40, 12.5
+          40, 0,   // Front (nose)
+          -20, -12.5, // Left back
+          -10, 0,   // Back middle
+          -20, 12.5   // Right back
         ]);
         break;
     }

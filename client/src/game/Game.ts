@@ -105,7 +105,7 @@ export function initGame(pixiApp: PIXI.Application): void {
     strokeThickness: 2
   });
   shipStatusText.anchor.set(0.5, 0);
-  shipStatusText.position.set(app.screen.width / 2, 20);
+  shipStatusText.position.set(app.screen.width / 2, 80); // Moved down to avoid overlap with health bar
   uiContainer.addChild(shipStatusText as any);
   
   // Create health bar background

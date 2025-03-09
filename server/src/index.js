@@ -64,9 +64,9 @@ io.on('connection', (socket) => {
   // Add player to the game
   players[socket.id] = {
     id: socket.id,
-    x: 2500 + Math.random() * 200 - 100, // Random position near center
-    y: 2500 + Math.random() * 200 - 100,
-    rotation: 0,
+    x: Math.random() * 2500, // Random position across the map
+    y: Math.random() * 2500, // Random position across the map
+    rotation: Math.random() * Math.PI * 2, // Random initial rotation
     type: getRandomShipType(),
     hull: 100
   };
@@ -119,8 +119,8 @@ io.on('connection', (socket) => {
         setTimeout(() => {
           if (players[targetId]) {
             players[targetId].hull = 100;
-            players[targetId].x = 2500 + Math.random() * 200 - 100;
-            players[targetId].y = 2500 + Math.random() * 200 - 100;
+            players[targetId].x = Math.random() * 2500;
+            players[targetId].y = Math.random() * 2500;
             
             // Broadcast ship respawn
             io.emit('shipRespawned', players[targetId]);

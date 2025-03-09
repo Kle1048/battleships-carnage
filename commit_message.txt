@@ -134,4 +134,33 @@ This commit addresses two issues with the collision detection and UI:
    - Added proper anchoring and positioning
 
 These changes make the game more playable by ensuring collisions work properly
-and improving the UI layout for better visibility of important game information. 
+and improving the UI layout for better visibility of important game information.
+
+[Cursor] Fix gameplay and UI issues
+
+This commit addresses several gameplay and UI issues:
+
+1. Improved Spawn Positions:
+   - Increased the range of random spawn points across the entire map (0-2500 range)
+   - Added random initial rotation for ships
+   - Prevents immediate collisions at game start
+   - Applied same improvements to ship respawning
+
+2. Fixed Ship Orientation:
+   - Redesigned ship sprites to point in the direction of movement
+   - Improved ship shape with more detailed polygon design
+   - Added clear front/back distinction for better visual feedback
+
+3. Adjusted Collision Detection:
+   - Reduced collision circle size to better match the ship sprite
+   - Destroyer: 20px radius (was 40px)
+   - Cruiser: 30px radius (was 50px)
+   - Battleship: 40px radius (was 60px)
+
+4. Fixed UI Layout:
+   - Moved ship controls text down to 80px from top (was 20px)
+   - Eliminated overlap between health bar and controls
+   - Maintained centered alignment for better readability
+
+These changes improve the gameplay experience by providing better initial
+positioning, clearer visual feedback, and a more intuitive UI layout. 
