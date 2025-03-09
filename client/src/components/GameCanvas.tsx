@@ -32,12 +32,26 @@ const GameCanvas: React.FC = () => {
         }
       };
 
+      // Prevent context menu on right-click
+      const preventContextMenu = (e: Event) => {
+        e.preventDefault();
+      };
+
       window.addEventListener('resize', handleResize);
+      
+      // Add event listener to prevent context menu
+      // Use type assertion to access the view property and add event listener
+      const canvas = app.view as HTMLCanvasElement;
+      canvas.addEventListener('contextmenu', preventContextMenu);
 
       // Clean up
       return () => {
         window.removeEventListener('resize', handleResize);
         if (appRef.current) {
+          // Use type assertion to access the view property and remove event listener
+          const canvas = appRef.current.view as HTMLCanvasElement;
+          canvas.removeEventListener('contextmenu', preventContextMenu);
+          
           appRef.current.destroy(true, true);
           appRef.current = null;
         }

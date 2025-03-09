@@ -113,19 +113,20 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - Ships can be upgraded through combat and collecting wreckage
 - Realistic naval physics with momentum-based movement
 
-### Current Task: Fix Mouse-Directed Firing Issues
+### Current Task: Fix TypeScript Errors in Event Listeners
 
 #### Issues Fixed
-[X] Improved coordinate conversion between screen and world space
-[X] Fixed angle calculation from ship to mouse
-[X] Simplified projectile spawn positions for more consistent firing
-[X] Added visual indicator for mouse target to help with debugging
+[X] Fix TypeScript errors in the contextmenu event listener
+[X] Fix type issues with the MouseEvent parameter
+[X] Ensure proper handling of possibly undefined objects
 
 #### Implementation Approach
-1. Fixed the coordinate conversion between screen and world space by using player-centered calculations
-2. Added debug logging to track mouse positions and angles
-3. Simplified projectile spawn positions to make aiming more predictable
-4. Added a visual red circle indicator to show the target position
+1. Added proper type assertions for the PIXI.Application view property
+   - Cast app.view to HTMLCanvasElement to access standard DOM methods
+2. Fixed the event listener function signature to match expected types
+   - Changed MouseEvent to Event to match the standard DOM event type
+3. Added null checks to prevent errors with undefined objects
+   - Used separate variables with type assertions for clarity
 
 ### Progress on Combat System
 [X] Phase 1: Project Setup & Basic Game Engine

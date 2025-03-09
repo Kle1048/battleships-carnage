@@ -317,4 +317,46 @@ This commit addresses issues with the mouse-directed firing system:
    - Made it easier to diagnose firing direction problems
 
 These changes make the combat system more responsive and intuitive, ensuring
-that projectiles consistently fire in the direction the player is pointing. 
+that projectiles consistently fire in the direction the player is pointing.
+
+[Cursor] Improve mouse targeting UI and prevent context menu
+
+This commit enhances the mouse targeting experience with two key improvements:
+
+1. Hidden Mouse Cursor:
+   - Added CSS to hide the default cursor over the game canvas
+   - This prevents visual confusion between the system cursor and the game's targeting indicator
+   - Makes the targeting experience cleaner and more immersive
+   - The red circle target indicator now serves as the only cursor
+
+2. Prevented Context Menu:
+   - Added event listener to block the browser's context menu on right-click
+   - Right mouse button can now be used exclusively for secondary weapons
+   - Prevents accidental menu opening during intense gameplay
+   - Improves the overall game experience on desktop browsers
+
+These changes make the targeting system more intuitive and game-like, removing
+browser UI elements that would otherwise interfere with the gameplay experience.
+
+[Cursor] Fix TypeScript errors in event listeners
+
+This commit addresses TypeScript errors in the GameCanvas component:
+
+1. Fixed Event Listener Type Issues:
+   - Changed MouseEvent to Event in the preventContextMenu function signature
+   - This resolves the type compatibility error with the standard DOM event system
+   - Removed the unnecessary return value from the event handler
+
+2. Added Proper Type Assertions:
+   - Added explicit type assertions for the PIXI.Application view property
+   - Cast app.view to HTMLCanvasElement to access standard DOM methods
+   - This resolves the "possibly undefined" TypeScript errors
+
+3. Improved Code Structure:
+   - Used separate variables with clear type assertions for better readability
+   - Added comments explaining the type assertions
+   - Maintained the same functionality while ensuring type safety
+
+These changes fix all TypeScript errors while preserving the functionality
+that hides the mouse cursor and prevents the context menu from appearing
+when right-clicking in the game canvas. 
