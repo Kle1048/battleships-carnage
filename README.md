@@ -6,7 +6,7 @@ A top-down multiplayer naval battle game where players engage in combat on an op
 
 - Endless water map with persistent world
 - Realistic naval physics with momentum-based movement
-- Basic ship controls (W/A/S/D)
+- Authentic ship controls with discrete throttle and rudder settings
 - Real-time multiplayer with WebSockets
 - Multiple ship types (destroyer, cruiser, battleship)
 - Player-specific ship colors for better visibility
@@ -81,15 +81,31 @@ To play with multiple devices on your local network:
 
 5. If you have firewall issues, make sure ports 3000 and 3001 are allowed.
 
-## Game Controls
+## Ship Controls
 
-- W/S: Increase/decrease ship speed (throttle control)
-- A/D: Steer left/right (rudder control)
-- Mouse Movement: Rotate gun turrets (coming soon)
-- Left Mouse Button: Fire cannons (coming soon)
-- Right Mouse Button: Fire rockets/torpedoes (coming soon)
-- Shift: Use ship boost for a temporary speed burst (coming soon)
-- R Key: Reload weapons manually (coming soon)
+### Throttle Settings
+- **W**: Increase throttle one step
+- **S**: Decrease throttle one step
+- **1**: Reverse Full
+- **2**: Reverse Half
+- **3**: Stop
+- **4**: Slow Ahead
+- **5**: Half Ahead
+- **6**: Flank Speed
+
+### Rudder Settings
+- **A**: Turn rudder more to the left
+- **D**: Turn rudder more to the right
+- **Space**: Center the rudder
+- **Q**: Full rudder left
+- **E**: Full rudder right
+- **R**: Rudder ahead (centered)
+
+The ship's movement is now more realistic with:
+- Gradual acceleration and deceleration
+- Turning effectiveness based on speed
+- Reduced turning ability in reverse
+- Slight drift when turning at speed
 
 ## Development Progress
 
@@ -99,6 +115,7 @@ To play with multiple devices on your local network:
 - [x] Basic multiplayer integration
 - [x] Visual improvements for better gameplay
 - [x] Local network multiplayer
+- [x] Realistic ship controls
 - [ ] Combat system
 - [ ] Progression system
 - [ ] Polish & optimization
@@ -121,4 +138,5 @@ This test page will show you if the connection to the server is working properly
 - Basic server-side game state management
 - Player-specific ship colors for better visibility
 - Enhanced water background with improved contrast
-- Local network multiplayer support 
+- Local network multiplayer support
+- Realistic ship controls with throttle and rudder settings 

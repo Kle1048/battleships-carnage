@@ -133,6 +133,7 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 [X] Implement ship sprites and basic rendering
 [X] Add momentum-based movement physics
 [X] Implement ship steering and throttle controls
+[X] Implement realistic ship controls with discrete settings
 [ ] Add collision detection
 [X] Implement camera following player ship
 
@@ -180,6 +181,7 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 [X] Improved ship visibility with player-specific colors
 [X] Enhanced water background for better contrast
 [X] Local network multiplayer support
+[X] Realistic ship controls with throttle and rudder settings
 
 ### Next Steps for v0.2.0
 [ ] Implement collision detection

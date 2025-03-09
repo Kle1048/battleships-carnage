@@ -1,10 +1,12 @@
 export class InputHandler {
   private keys: { [key: string]: boolean };
+  private previousKeys: { [key: string]: boolean };
   private mousePosition: { x: number, y: number };
   private mouseButtons: { [button: number]: boolean };
 
   constructor() {
     this.keys = {};
+    this.previousKeys = {};
     this.mousePosition = { x: 0, y: 0 };
     this.mouseButtons = {};
 
@@ -41,12 +43,27 @@ export class InputHandler {
     return this.keys[code] === true;
   }
 
+  public isKeyPressed(code: string): boolean {
+    const isPressed = this.keys[code] === true && this.previousKeys[code] !== true;
+    return isPressed;
+  }
+
+  public isKeyReleased(code: string): boolean {
+    const isReleased = this.keys[code] !== true && this.previousKeys[code] === true;
+    return isReleased;
+  }
+
   public isMouseButtonDown(button: number): boolean {
     return this.mouseButtons[button] === true;
   }
 
   public getMousePosition(): { x: number, y: number } {
     return { ...this.mousePosition };
+  }
+
+  public update(): void {
+    // Store current key states for next frame comparison
+    this.previousKeys = { ...this.keys };
   }
 
   public cleanup(): void {

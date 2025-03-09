@@ -1,0 +1,20 @@
+[Cursor] Implement realistic ship controls with discrete throttle and rudder settings
+
+This commit adds more realistic ship controls to the game:
+
+- Added discrete throttle settings: Flank, Half, Slow, Stop, Reverse Half, Reverse Full
+- Added discrete rudder settings: Full Left, Half Left, Ahead, Half Right, Full Right
+- Implemented more realistic ship physics:
+  - Gradual acceleration and deceleration
+  - Turning effectiveness based on speed
+  - Reduced turning ability in reverse
+  - Slight drift when turning at speed
+- Added visual feedback showing current throttle and rudder settings
+- Updated input handling to support key press events
+- Added multiple control options:
+  - W/S: Increase/decrease throttle
+  - A/D: Turn rudder left/right
+  - 1-6: Direct throttle settings
+  - Q/E/R: Direct rudder settings
+  - Space: Center rudder
+- Updated documentation in README.md 

@@ -3,6 +3,25 @@ import * as PIXI from 'pixi.js';
 // Ship types
 type ShipType = 'destroyer' | 'cruiser' | 'battleship';
 
+// Throttle settings
+export enum ThrottleSetting {
+  REVERSE_FULL = -2,
+  REVERSE_HALF = -1,
+  STOP = 0,
+  SLOW = 1,
+  HALF = 2,
+  FLANK = 3
+}
+
+// Rudder settings
+export enum RudderSetting {
+  FULL_LEFT = -2,
+  HALF_LEFT = -1,
+  AHEAD = 0,
+  HALF_RIGHT = 1,
+  FULL_RIGHT = 2
+}
+
 // Ship properties interface
 interface ShipProps {
   x: number;
@@ -47,8 +66,18 @@ export class Ship {
   playerId: string;
   color: number;
   
+  // Ship control settings
+  throttleSetting: ThrottleSetting = ThrottleSetting.STOP;
+  rudderSetting: RudderSetting = RudderSetting.AHEAD;
+  
+  // Target speed based on throttle setting
+  targetSpeed: number = 0;
+  
   // PIXI sprite
   sprite: PIXI.Sprite;
+  
+  // Status text for debugging
+  statusText: PIXI.Text;
   
   constructor(props: ShipProps) {
     // Set initial properties
@@ -68,6 +97,19 @@ export class Ship {
     
     // Create ship sprite based on type
     this.sprite = this.createShipSprite();
+    
+    // Create status text for debugging
+    this.statusText = new PIXI.Text('', {
+      fontFamily: 'Arial',
+      fontSize: 10,
+      fill: 0xFFFFFF,
+      align: 'center',
+      stroke: 0x000000,
+      strokeThickness: 2
+    });
+    this.statusText.anchor.set(0.5, 0);
+    this.statusText.position.set(0, 30);
+    this.sprite.addChild(this.statusText);
     
     // Set initial position and rotation
     this.updateSpritePosition();
@@ -163,35 +205,163 @@ export class Ship {
     this.sprite.x = this.x;
     this.sprite.y = this.y;
     this.sprite.rotation = this.rotation;
+    
+    // Update status text
+    this.updateStatusText();
   }
   
+  updateStatusText(): void {
+    // Show throttle and rudder settings
+    let throttleText = '';
+    switch (this.throttleSetting) {
+      case ThrottleSetting.FLANK: throttleText = 'FLANK'; break;
+      case ThrottleSetting.HALF: throttleText = 'HALF'; break;
+      case ThrottleSetting.SLOW: throttleText = 'SLOW'; break;
+      case ThrottleSetting.STOP: throttleText = 'STOP'; break;
+      case ThrottleSetting.REVERSE_HALF: throttleText = 'REV HALF'; break;
+      case ThrottleSetting.REVERSE_FULL: throttleText = 'REV FULL'; break;
+    }
+    
+    let rudderText = '';
+    switch (this.rudderSetting) {
+      case RudderSetting.FULL_LEFT: rudderText = 'FULL LEFT'; break;
+      case RudderSetting.HALF_LEFT: rudderText = 'HALF LEFT'; break;
+      case RudderSetting.AHEAD: rudderText = 'AHEAD'; break;
+      case RudderSetting.HALF_RIGHT: rudderText = 'HALF RIGHT'; break;
+      case RudderSetting.FULL_RIGHT: rudderText = 'FULL RIGHT'; break;
+    }
+    
+    this.statusText.text = `${throttleText}\n${rudderText}`;
+  }
+  
+  // Set throttle to a specific setting
+  setThrottle(setting: ThrottleSetting): void {
+    this.throttleSetting = setting;
+    
+    // Set target speed based on throttle setting
+    switch (setting) {
+      case ThrottleSetting.FLANK:
+        this.targetSpeed = this.maxSpeed;
+        break;
+      case ThrottleSetting.HALF:
+        this.targetSpeed = this.maxSpeed * 0.6;
+        break;
+      case ThrottleSetting.SLOW:
+        this.targetSpeed = this.maxSpeed * 0.3;
+        break;
+      case ThrottleSetting.STOP:
+        this.targetSpeed = 0;
+        break;
+      case ThrottleSetting.REVERSE_HALF:
+        this.targetSpeed = -this.maxSpeed * 0.3;
+        break;
+      case ThrottleSetting.REVERSE_FULL:
+        this.targetSpeed = -this.maxSpeed * 0.5;
+        break;
+    }
+  }
+  
+  // Increase throttle by one step
+  increaseThrottle(): void {
+    if (this.throttleSetting < ThrottleSetting.FLANK) {
+      this.setThrottle(this.throttleSetting + 1);
+    }
+  }
+  
+  // Decrease throttle by one step
+  decreaseThrottle(): void {
+    if (this.throttleSetting > ThrottleSetting.REVERSE_FULL) {
+      this.setThrottle(this.throttleSetting - 1);
+    }
+  }
+  
+  // Set rudder to a specific setting
+  setRudder(setting: RudderSetting): void {
+    this.rudderSetting = setting;
+  }
+  
+  // Turn rudder more to the left
+  turnRudderLeft(): void {
+    if (this.rudderSetting > RudderSetting.FULL_LEFT) {
+      this.rudderSetting--;
+    }
+  }
+  
+  // Turn rudder more to the right
+  turnRudderRight(): void {
+    if (this.rudderSetting < RudderSetting.FULL_RIGHT) {
+      this.rudderSetting++;
+    }
+  }
+  
+  // Center the rudder
+  centerRudder(): void {
+    this.rudderSetting = RudderSetting.AHEAD;
+  }
+  
+  // Legacy methods for compatibility
   accelerate(): void {
-    this.speed = Math.min(this.speed + this.acceleration, this.maxSpeed);
+    this.increaseThrottle();
   }
   
   decelerate(): void {
-    this.speed = Math.max(this.speed - this.acceleration, -this.maxSpeed / 2);
+    this.decreaseThrottle();
   }
   
   rotateLeft(): void {
-    this.rotation -= this.rotationSpeed;
+    this.turnRudderLeft();
   }
   
   rotateRight(): void {
-    this.rotation += this.rotationSpeed;
+    this.turnRudderRight();
   }
   
   update(delta: number): void {
-    // Apply momentum - gradually slow down if not accelerating
-    if (Math.abs(this.speed) > 0.01) {
-      this.speed *= 0.98;
+    // Apply throttle - gradually adjust speed toward target
+    if (Math.abs(this.speed - this.targetSpeed) > 0.01) {
+      // Acceleration is slower than deceleration (ships take time to speed up)
+      const accelFactor = this.speed < this.targetSpeed ? 0.02 : 0.03;
+      this.speed += (this.targetSpeed - this.speed) * accelFactor * delta;
     } else {
-      this.speed = 0;
+      this.speed = this.targetSpeed;
     }
     
-    // Update position based on speed and rotation
+    // Apply rudder - rotation speed depends on current speed and rudder setting
+    // Ships turn faster at higher speeds, and rudder is less effective in reverse
+    const speedFactor = Math.abs(this.speed) / this.maxSpeed;
+    const directionFactor = this.speed >= 0 ? 1 : 0.5; // Less effective in reverse
+    const rudderEffect = this.rotationSpeed * speedFactor * directionFactor;
+    
+    switch (this.rudderSetting) {
+      case RudderSetting.FULL_LEFT:
+        this.rotation -= rudderEffect * 1.0 * delta;
+        break;
+      case RudderSetting.HALF_LEFT:
+        this.rotation -= rudderEffect * 0.5 * delta;
+        break;
+      case RudderSetting.HALF_RIGHT:
+        this.rotation += rudderEffect * 0.5 * delta;
+        break;
+      case RudderSetting.FULL_RIGHT:
+        this.rotation += rudderEffect * 1.0 * delta;
+        break;
+      // No rotation when rudder is centered (AHEAD)
+    }
+    
+    // Add slight drift based on current speed and turning
+    // Ships tend to drift sideways when turning at speed
+    const driftFactor = 0.1 * speedFactor * Math.abs(this.rudderSetting);
+    const driftAngle = this.rotation + (this.rudderSetting < 0 ? -Math.PI/2 : Math.PI/2);
+    
+    // Update position based on speed, rotation, and drift
     this.x += Math.sin(this.rotation) * this.speed * delta;
     this.y -= Math.cos(this.rotation) * this.speed * delta;
+    
+    // Add drift component
+    if (Math.abs(this.rudderSetting) > 0 && Math.abs(this.speed) > 0.5) {
+      this.x += Math.sin(driftAngle) * driftFactor * delta;
+      this.y -= Math.cos(driftAngle) * driftFactor * delta;
+    }
     
     // Update sprite position and rotation
     this.updateSpritePosition();

@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { Ship } from './Ship';
+import { Ship, ThrottleSetting, RudderSetting } from './Ship';
 import { InputHandler } from './InputHandler';
 import { NetworkManager } from './NetworkManager';
 
@@ -67,18 +67,8 @@ export function initGame(pixiApp: PIXI.Application): void {
   
   // Set up game loop
   gameLoop = (delta: number) => {
-    // Update player ship based on input
-    if (inputHandler.isKeyDown('KeyW')) {
-      playerShip.accelerate();
-    } else if (inputHandler.isKeyDown('KeyS')) {
-      playerShip.decelerate();
-    }
-    
-    if (inputHandler.isKeyDown('KeyA')) {
-      playerShip.rotateLeft();
-    } else if (inputHandler.isKeyDown('KeyD')) {
-      playerShip.rotateRight();
-    }
+    // Handle ship controls with the new control scheme
+    handleShipControls();
     
     // Update ship position
     playerShip.update(delta);
@@ -91,10 +81,60 @@ export function initGame(pixiApp: PIXI.Application): void {
     
     // Send position update to server
     networkManager.updatePosition();
+    
+    // Update input handler
+    inputHandler.update();
   };
   
   // Start the game loop
   app.ticker.add(gameLoop);
+}
+
+function handleShipControls(): void {
+  // Throttle controls
+  if (inputHandler.isKeyPressed('KeyW')) {
+    // Increase throttle
+    playerShip.increaseThrottle();
+  } else if (inputHandler.isKeyPressed('KeyS')) {
+    // Decrease throttle
+    playerShip.decreaseThrottle();
+  }
+  
+  // Rudder controls
+  if (inputHandler.isKeyPressed('KeyA')) {
+    // Turn rudder left
+    playerShip.turnRudderLeft();
+  } else if (inputHandler.isKeyPressed('KeyD')) {
+    // Turn rudder right
+    playerShip.turnRudderRight();
+  } else if (inputHandler.isKeyPressed('Space')) {
+    // Center rudder
+    playerShip.centerRudder();
+  }
+  
+  // Direct throttle settings with number keys
+  if (inputHandler.isKeyPressed('Digit1')) {
+    playerShip.setThrottle(ThrottleSetting.REVERSE_FULL);
+  } else if (inputHandler.isKeyPressed('Digit2')) {
+    playerShip.setThrottle(ThrottleSetting.REVERSE_HALF);
+  } else if (inputHandler.isKeyPressed('Digit3')) {
+    playerShip.setThrottle(ThrottleSetting.STOP);
+  } else if (inputHandler.isKeyPressed('Digit4')) {
+    playerShip.setThrottle(ThrottleSetting.SLOW);
+  } else if (inputHandler.isKeyPressed('Digit5')) {
+    playerShip.setThrottle(ThrottleSetting.HALF);
+  } else if (inputHandler.isKeyPressed('Digit6')) {
+    playerShip.setThrottle(ThrottleSetting.FLANK);
+  }
+  
+  // Direct rudder settings with Q, E, and R keys
+  if (inputHandler.isKeyPressed('KeyQ')) {
+    playerShip.setRudder(RudderSetting.FULL_LEFT);
+  } else if (inputHandler.isKeyPressed('KeyE')) {
+    playerShip.setRudder(RudderSetting.FULL_RIGHT);
+  } else if (inputHandler.isKeyPressed('KeyR')) {
+    playerShip.setRudder(RudderSetting.AHEAD);
+  }
 }
 
 function updateStatusText(): void {
@@ -122,7 +162,13 @@ function updateStatusText(): void {
   text += `\nServer: ${serverUrl}`;
   
   // Add controls info
-  text += '\nControls: W/S - Throttle, A/D - Steering';
+  text += '\nControls:';
+  text += '\nW/S - Increase/Decrease Throttle';
+  text += '\nA/D - Turn Rudder Left/Right';
+  text += '\nSpace - Center Rudder';
+  text += '\n1-6 - Direct Throttle Settings';
+  text += '\nQ/E - Full Rudder Left/Right';
+  text += '\nR - Center Rudder';
   
   // Add position info
   text += `\nPosition: X: ${Math.round(playerShip.x)}, Y: ${Math.round(playerShip.y)}`;
