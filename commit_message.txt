@@ -268,38 +268,26 @@ This commit fixes a TypeScript error in the NetworkManager class:
 This fix ensures type safety when handling ship respawning, particularly when
 the server assigns a new ship type to the player during respawn.
 
-[Cursor] Implement weapon systems with projectile physics
+[Cursor] Fix TypeScript errors and enhance weapon system
 
-This commit adds a complete weapon system to the naval battle game:
+This commit addresses several TypeScript errors and enhances the weapon system:
 
-1. Projectile System:
-   - Created a new Projectile class with different types (cannon balls, torpedoes)
-   - Implemented projectile physics with proper movement and collision detection
-   - Added lifetime management for projectiles
-   - Created visual effects for projectile firing and impacts
+1. Fixed TypeScript Errors:
+   - Updated property names from 'throttleSetting' to 'throttle' in Game.ts
+   - Updated property names from 'rudderSetting' to 'rudder' in Game.ts
+   - Added type assertion to fix removeChild method in Projectile.ts
 
-2. Ship Weapons:
-   - Added primary (cannons) and secondary (torpedoes) weapons to ships
-   - Implemented weapon cooldowns based on ship type
-   - Created firing positions with proper offsets from ship
-   - Added spread patterns for multi-projectile weapons
-   - Battleships have more powerful weapons than cruisers and destroyers
+2. Enhanced Weapon System:
+   - Projectiles now fire toward the mouse pointer direction
+   - Added maximum range limit for projectiles (500px for cannons, 700px for torpedoes)
+   - Added water splash effect when projectiles expire or reach maximum range
+   - Improved projectile spread pattern around the target direction
 
-3. Weapon Controls:
-   - Added mouse controls (left click for primary, right click for secondary)
-   - Added keyboard controls (F for primary, G for secondary)
-   - Implemented visual feedback when firing
+3. Technical Improvements:
+   - Added distance tracking for projectiles
+   - Enhanced projectile serialization for network synchronization
+   - Improved visual feedback with animated water splash effects
+   - Fixed world-to-screen coordinate conversion for mouse targeting
 
-4. Network Synchronization:
-   - Added projectile synchronization across the network
-   - Implemented server-side projectile tracking
-   - Added damage reporting and validation
-   - Ensured consistent projectile behavior across clients
-
-5. Damage System Integration:
-   - Connected projectile hits to the existing damage system
-   - Different projectiles cause different amounts of damage
-   - Added visual feedback when hit by projectiles
-
-This feature completes the combat system, allowing players to engage in naval
-battles with different weapon types and strategies based on their ship class. 
+These changes make the combat system more intuitive and visually appealing,
+while fixing the TypeScript errors that were preventing compilation. 

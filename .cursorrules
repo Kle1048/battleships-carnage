@@ -113,9 +113,9 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - Ships can be upgraded through combat and collecting wreckage
 - Realistic naval physics with momentum-based movement
 
-### Current Task: Implement Weapon Systems
+### Current Task: Fix TypeScript Errors and Enhance Weapon System
 
-#### Collision Detection Implementation Plan
+#### Current Issues to Fix
 [X] Phase 1: Project Setup & Basic Game Engine
 [X] Phase 2: Ship Movement & Controls
 [WIP] Phase 3: Combat System
@@ -123,14 +123,50 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 [ ] Phase 5: Progression System
 [ ] Phase 6: Polish & Optimization
 
-#### Collision Detection Tasks
+#### TypeScript Errors to Fix
+[X] Fix 'throttleSetting' property error in Game.ts (should use 'throttle')
+[X] Fix 'rudderSetting' property error in Game.ts (should use 'rudder')
+[X] Fix type error in Projectile.ts with removeChild method
+
+#### Weapon System Enhancements
+[X] Make projectiles fire toward mouse pointer direction
+[X] Add limited range to projectiles
+[X] Create water splash effect when projectiles expire
+[ ] Restore controls display
+
+### Implementation Approach
+1. First, fix the TypeScript errors by updating property names and adding type assertions
+2. Implement mouse-directed firing by calculating angle between ship and mouse position
+3. Add range limit to projectiles and water splash effect
+4. Restore and fix the controls display
+
+### Phase 3 Tasks (Combat System)
+[WIP] Implement weapon systems (cannons, torpedoes, rockets)
+[X] Add projectile physics
+[X] Implement damage system
+[X] Create visual effects for combat
+[X] Add ship health/destruction mechanics
+
+### Weapon Systems Tasks
+[X] Design weapon types (cannons, torpedoes)
+[X] Implement projectile class
+[X] Add firing mechanics and controls
+[X] Create projectile physics and movement
+[X] Implement collision detection for projectiles
+[X] Add visual effects for firing and impacts
+[X] Implement damage calculation based on weapon type
+[X] Synchronize weapons and projectiles across the network
+[X] Make projectiles fire toward mouse pointer
+[X] Add limited range and water splash effect
+
+### Collision Detection Tasks
 [X] Implement basic ship-to-ship collision detection
 [X] Add collision response (ships bounce/push each other)
 [X] Implement damage on collision based on relative speed
 [X] Add visual feedback for collisions (particle effects)
 [X] Synchronize collisions across the network
 
-#### Ship Damage System Tasks
+### Ship Damage System Tasks
 [X] Add health property to ships
 [X] Implement damage application function
 [X] Create visual indicators for ship health
@@ -138,63 +174,3 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 [X] Implement ship destruction when health reaches zero
 [X] Add ship respawning after destruction
 [X] Synchronize damage and destruction across the network
-
-#### Weapon Systems Tasks
-[ ] Design weapon types (cannons, torpedoes)
-[ ] Implement projectile class
-[ ] Add firing mechanics and controls
-[ ] Create projectile physics and movement
-[ ] Implement collision detection for projectiles
-[ ] Add visual effects for firing and impacts
-[ ] Implement damage calculation based on weapon type
-[ ] Synchronize weapons and projectiles across the network
-
-### Implementation Approach
-1. First, create a Projectile class to handle different types of projectiles
-2. Implement firing mechanics in the Ship class
-3. Add projectile physics and movement
-4. Implement collision detection between projectiles and ships
-5. Add visual effects for firing and impacts
-6. Synchronize weapons and projectiles across the network
-
-### Phase 3 Tasks (Combat System)
-[WIP] Implement weapon systems (cannons, torpedoes, rockets)
-[ ] Add projectile physics
-[X] Implement damage system
-[X] Create visual effects for combat
-[X] Add ship health/destruction mechanics
-
-### Phase 2 Tasks (Ship Movement)
-[X] Implement ship sprites and basic rendering
-[X] Add momentum-based movement physics
-[X] Implement ship steering and throttle controls
-[X] Implement realistic ship controls with discrete settings
-[X] Add collision detection
-[X] Implement camera following player ship
-
-### Troubleshooting
-[X] Fix Content Security Policy issues
-[X] Improve error handling for network connections
-[X] Add connection status display
-[X] Configure server for network access
-[X] Fix client-server connection issues
-[X] Add network test page for easier debugging
-[X] Update firewall settings for local network play
-
-### Version 0.1.0 Achievements
-[X] Basic ship movement with physics
-[X] Real-time multiplayer functionality
-[X] Server-side game state management
-[X] Connection status display
-[X] Multiple ship types
-[X] Improved ship visibility with player-specific colors
-[X] Enhanced water background for better contrast
-[X] Local network multiplayer support
-[X] Realistic ship controls with throttle and rudder settings
-[X] Network test page for connection debugging
-
-### Version 0.2.0 Goals
-[X] Implement collision detection
-[WIP] Add basic weapon systems
-[X] Implement ship damage mechanics
-[X] Add visual effects for combat

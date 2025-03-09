@@ -14,6 +14,7 @@ const PROJECTILE_PROPERTIES = {
     damage: 15,
     radius: 5,
     lifetime: 120, // frames
+    maxRange: 500, // maximum travel distance
     color: 0x333333
   },
   [ProjectileType.TORPEDO]: {
@@ -21,6 +22,7 @@ const PROJECTILE_PROPERTIES = {
     damage: 30,
     radius: 8,
     lifetime: 240, // frames
+    maxRange: 700, // maximum travel distance
     color: 0x666666
   }
 };
@@ -39,6 +41,10 @@ export class Projectile {
   public sourceShip: Ship;
   public sourceId: string;
   public id: string;
+  public maxRange: number;
+  public distanceTraveled: number = 0;
+  public startX: number;
+  public startY: number;
   
   constructor(
     x: number, 
@@ -49,6 +55,8 @@ export class Projectile {
   ) {
     this.x = x;
     this.y = y;
+    this.startX = x;
+    this.startY = y;
     this.rotation = rotation;
     this.type = type;
     this.sourceShip = sourceShip;
@@ -61,6 +69,7 @@ export class Projectile {
     this.damage = properties.damage;
     this.radius = properties.radius;
     this.lifetime = properties.lifetime;
+    this.maxRange = properties.maxRange;
     this.currentLifetime = 0;
     
     // Create sprite
@@ -109,6 +118,16 @@ export class Projectile {
     this.x += vx;
     this.y += vy;
     
+    // Calculate distance traveled
+    const dx = this.x - this.startX;
+    const dy = this.y - this.startY;
+    this.distanceTraveled = Math.sqrt(dx * dx + dy * dy);
+    
+    // Check if projectile has exceeded maximum range
+    if (this.distanceTraveled >= this.maxRange) {
+      return false; // Projectile should be removed
+    }
+    
     // Update sprite position
     this.sprite.x = this.x;
     this.sprite.y = this.y;
@@ -152,7 +171,7 @@ export class Projectile {
   public destroy(): void {
     // Remove sprite from its parent
     if (this.sprite.parent) {
-      this.sprite.parent.removeChild(this.sprite);
+      this.sprite.parent.removeChild(this.sprite as any);
     }
   }
   
@@ -162,9 +181,12 @@ export class Projectile {
       id: this.id,
       x: this.x,
       y: this.y,
+      startX: this.startX,
+      startY: this.startY,
       rotation: this.rotation,
       type: this.type,
-      sourceId: this.sourceId
+      sourceId: this.sourceId,
+      distanceTraveled: this.distanceTraveled
     };
   }
   
@@ -176,12 +198,20 @@ export class Projectile {
       return null;
     }
     
-    return new Projectile(
+    const projectile = new Projectile(
       data.x,
       data.y,
       data.rotation,
       data.type as ProjectileType,
       sourceShip
     );
+    
+    // Set additional properties
+    projectile.id = data.id;
+    projectile.startX = data.startX || data.x;
+    projectile.startY = data.startY || data.y;
+    projectile.distanceTraveled = data.distanceTraveled || 0;
+    
+    return projectile;
   }
 } 

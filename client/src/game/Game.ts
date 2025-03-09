@@ -445,7 +445,7 @@ function updateControlsText(): void {
 function updateShipStatusText(): void {
   // Show current throttle and rudder settings
   let throttleText = '';
-  switch (playerShip.throttleSetting) {
+  switch (playerShip.throttle) {
     case ThrottleSetting.FLANK: throttleText = 'FLANK SPEED'; break;
     case ThrottleSetting.HALF: throttleText = 'HALF AHEAD'; break;
     case ThrottleSetting.SLOW: throttleText = 'SLOW AHEAD'; break;
@@ -455,7 +455,7 @@ function updateShipStatusText(): void {
   }
   
   let rudderText = '';
-  switch (playerShip.rudderSetting) {
+  switch (playerShip.rudder) {
     case RudderSetting.FULL_LEFT: rudderText = 'FULL RUDDER LEFT'; break;
     case RudderSetting.HALF_LEFT: rudderText = 'HALF RUDDER LEFT'; break;
     case RudderSetting.AHEAD: rudderText = 'RUDDER AMIDSHIPS'; break;
@@ -673,14 +673,31 @@ function firePlayerWeapon(weaponType: WeaponType): void {
     // Get weapon properties
     const weaponProps = playerShip.getWeaponProperties(weaponType);
     
+    // Get mouse position in world coordinates
+    const mousePos = inputHandler.getMousePosition();
+    const worldMousePos = {
+      x: mousePos.x + app.stage.x - app.screen.width / 2,
+      y: mousePos.y + app.stage.y - app.screen.height / 2
+    };
+    
+    // Calculate angle from ship to mouse
+    const angleToMouse = Math.atan2(
+      worldMousePos.y - playerShip.y,
+      worldMousePos.x - playerShip.x
+    );
+    
     // Create projectiles
     for (let i = 0; i < weaponProps.count; i++) {
       const spawnPos = playerShip.getProjectileSpawnPosition(weaponType, i);
       
+      // Apply spread around the mouse direction
+      const spreadAngle = weaponProps.spread * (i - (weaponProps.count - 1) / 2);
+      const finalAngle = angleToMouse + spreadAngle;
+      
       const projectile = new Projectile(
         spawnPos.x,
         spawnPos.y,
-        spawnPos.rotation,
+        finalAngle,
         weaponProps.type,
         playerShip
       );
@@ -693,7 +710,7 @@ function firePlayerWeapon(weaponType: WeaponType): void {
       networkManager.reportProjectileFired(projectile);
       
       // Add firing effect
-      createFiringEffect(spawnPos.x, spawnPos.y, spawnPos.rotation, weaponProps.type);
+      createFiringEffect(spawnPos.x, spawnPos.y, finalAngle, weaponProps.type);
     }
   }
 }
@@ -744,10 +761,52 @@ function updateProjectiles(): void {
     
     // Remove if no longer active
     if (!active) {
+      // Create splash effect where the projectile ended
+      createWaterSplashEffect(projectile.x, projectile.y);
+      
+      // Destroy and remove projectile
       projectile.destroy();
       projectiles.splice(i, 1);
     }
   }
+}
+
+function createWaterSplashEffect(x: number, y: number): void {
+  // Create a water splash effect
+  const splash = new PIXI.Graphics();
+  
+  // Draw outer splash circle
+  splash.beginFill(0xaaaaff, 0.5);
+  splash.drawCircle(0, 0, 15);
+  splash.endFill();
+  
+  // Draw inner splash circle
+  splash.beginFill(0xffffff, 0.7);
+  splash.drawCircle(0, 0, 8);
+  splash.endFill();
+  
+  splash.x = x;
+  splash.y = y;
+  
+  projectilesContainer.addChild(splash as any);
+  
+  // Animate the splash
+  let lifetime = 20;
+  let scale = 1.0;
+  
+  const splashUpdate = () => {
+    lifetime--;
+    scale += 0.03;
+    splash.alpha = lifetime / 20;
+    splash.scale.set(scale);
+    
+    if (lifetime <= 0) {
+      projectilesContainer.removeChild(splash as any);
+      app.ticker.remove(splashUpdate);
+    }
+  };
+  
+  app.ticker.add(splashUpdate);
 }
 
 function checkProjectileCollisions(): void {
