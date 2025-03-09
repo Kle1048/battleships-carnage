@@ -113,7 +113,7 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - Ships can be upgraded through combat and collecting wreckage
 - Realistic naval physics with momentum-based movement
 
-### Current Task: Implement Collision Detection and Ship Damage System
+### Current Task: Implement Weapon Systems
 
 #### Collision Detection Implementation Plan
 [X] Phase 1: Project Setup & Basic Game Engine
@@ -139,14 +139,26 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 [X] Add ship respawning after destruction
 [X] Synchronize damage and destruction across the network
 
+#### Weapon Systems Tasks
+[ ] Design weapon types (cannons, torpedoes)
+[ ] Implement projectile class
+[ ] Add firing mechanics and controls
+[ ] Create projectile physics and movement
+[ ] Implement collision detection for projectiles
+[ ] Add visual effects for firing and impacts
+[ ] Implement damage calculation based on weapon type
+[ ] Synchronize weapons and projectiles across the network
+
 ### Implementation Approach
-1. First, add collision detection between ships using bounding box or circle collision
-2. Then implement the damage system with health tracking
-3. Add visual feedback for both collisions and damage
-4. Finally, synchronize these new mechanics across the network
+1. First, create a Projectile class to handle different types of projectiles
+2. Implement firing mechanics in the Ship class
+3. Add projectile physics and movement
+4. Implement collision detection between projectiles and ships
+5. Add visual effects for firing and impacts
+6. Synchronize weapons and projectiles across the network
 
 ### Phase 3 Tasks (Combat System)
-[ ] Implement weapon systems (cannons, torpedoes, rockets)
+[WIP] Implement weapon systems (cannons, torpedoes, rockets)
 [ ] Add projectile physics
 [X] Implement damage system
 [X] Create visual effects for combat
@@ -183,6 +195,6 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 
 ### Version 0.2.0 Goals
 [X] Implement collision detection
-[ ] Add basic weapon systems
+[WIP] Add basic weapon systems
 [X] Implement ship damage mechanics
 [X] Add visual effects for combat

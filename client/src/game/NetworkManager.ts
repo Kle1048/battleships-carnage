@@ -1,6 +1,7 @@
 import * as PIXI from 'pixi.js';
 import { io, Socket } from 'socket.io-client';
 import { Ship } from './Ship';
+import { Projectile, ProjectileType } from './Projectile';
 
 // Import ShipType from Ship.ts
 type ShipType = 'destroyer' | 'cruiser' | 'battleship';
@@ -14,9 +15,19 @@ interface Player {
   hull: number;
 }
 
+interface ProjectileData {
+  id: string;
+  x: number;
+  y: number;
+  rotation: number;
+  type: ProjectileType;
+  sourceId: string;
+}
+
 interface GameState {
   players: { [id: string]: Player };
   self: string;
+  projectiles: ProjectileData[];
 }
 
 // Get server address from environment or use default
@@ -33,6 +44,8 @@ export class NetworkManager {
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 5;
   private serverUrl: string;
+  private projectiles: Map<string, Projectile> = new Map();
+  private onProjectileCreated: ((projectile: Projectile) => void) | null = null;
 
   constructor(gameContainer: PIXI.Container, serverUrl: string = SERVER_URL) {
     this.gameContainer = gameContainer;
@@ -227,6 +240,12 @@ export class NetworkManager {
         this.localPlayer.updateSpritePosition();
       }
     });
+    
+    // Handle projectile fired by other players
+    this.socket.on('projectileFired', (projectileData: ProjectileData) => {
+      console.log('Projectile fired by another player:', projectileData);
+      this.handleProjectileFromServer(projectileData);
+    });
   }
 
   private addPlayer(player: Player): void {
@@ -337,6 +356,42 @@ export class NetworkManager {
       this.socket.emit('requestRespawn');
     } else {
       console.warn('Cannot request respawn: not connected to server');
+    }
+  }
+
+  // Set callback for projectile creation
+  public setProjectileCallback(callback: (projectile: Projectile) => void): void {
+    this.onProjectileCreated = callback;
+  }
+  
+  // Report projectile fired to server
+  public reportProjectileFired(projectile: Projectile): void {
+    if (!this.socket || !this.socket.connected) {
+      console.warn('Cannot report projectile: not connected to server');
+      return;
+    }
+    
+    this.socket.emit('projectileFired', projectile.serialize());
+  }
+  
+  // Handle projectile from server
+  private handleProjectileFromServer(projectileData: ProjectileData): void {
+    // Skip if we already have this projectile
+    if (this.projectiles.has(projectileData.id)) {
+      return;
+    }
+    
+    // Create projectile
+    const projectile = Projectile.deserialize(projectileData, this.players);
+    
+    if (projectile) {
+      // Add to our map
+      this.projectiles.set(projectile.id, projectile);
+      
+      // Call the callback if set
+      if (this.onProjectileCreated) {
+        this.onProjectileCreated(projectile);
+      }
     }
   }
 } 

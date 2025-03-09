@@ -1,4 +1,5 @@
 import * as PIXI from 'pixi.js';
+import { ProjectileType } from './Projectile';
 
 // Global reference to the NetworkManager for damage reporting
 let networkManagerRef: any = null;
@@ -29,6 +30,64 @@ export enum RudderSetting {
   HALF_RIGHT = 1,
   FULL_RIGHT = 2
 }
+
+// Weapon types and properties
+export enum WeaponType {
+  PRIMARY = 'primary',
+  SECONDARY = 'secondary'
+}
+
+// Weapon properties by ship type
+const WEAPON_PROPERTIES = {
+  destroyer: {
+    [WeaponType.PRIMARY]: {
+      type: ProjectileType.CANNON_BALL,
+      cooldown: 30, // frames
+      count: 1,
+      spread: 0,
+      offset: { x: 0, y: 0 }
+    },
+    [WeaponType.SECONDARY]: {
+      type: ProjectileType.TORPEDO,
+      cooldown: 120, // frames
+      count: 1,
+      spread: 0,
+      offset: { x: 0, y: 0 }
+    }
+  },
+  cruiser: {
+    [WeaponType.PRIMARY]: {
+      type: ProjectileType.CANNON_BALL,
+      cooldown: 25, // frames
+      count: 2,
+      spread: 0.1,
+      offset: { x: 0, y: 0 }
+    },
+    [WeaponType.SECONDARY]: {
+      type: ProjectileType.TORPEDO,
+      cooldown: 100, // frames
+      count: 1,
+      spread: 0,
+      offset: { x: 0, y: 0 }
+    }
+  },
+  battleship: {
+    [WeaponType.PRIMARY]: {
+      type: ProjectileType.CANNON_BALL,
+      cooldown: 40, // frames
+      count: 3,
+      spread: 0.15,
+      offset: { x: 0, y: 0 }
+    },
+    [WeaponType.SECONDARY]: {
+      type: ProjectileType.TORPEDO,
+      cooldown: 150, // frames
+      count: 2,
+      spread: 0.05,
+      offset: { x: 0, y: 0 }
+    }
+  }
+};
 
 // Ship properties interface
 interface ShipProps {
@@ -67,42 +126,51 @@ const SHIP_COLORS = [
 
 export class Ship {
   // Position and movement
-  x: number;
-  y: number;
-  rotation: number;
-  speed: number;
-  maxSpeed: number;
-  acceleration: number;
-  rotationSpeed: number;
+  public x: number;
+  public y: number;
+  public rotation: number;
+  public speed: number;
+  public maxSpeed: number;
+  public acceleration: number;
+  public rotationSpeed: number;
+  public velocityX: number = 0;
+  public velocityY: number = 0;
+  public driftAngle: number = 0;
+  public driftX: number = 0;
+  public driftY: number = 0;
   
   // Ship properties
-  hull: number;
-  maxHull: number;
-  type: ShipType;
-  playerId: string;
-  color: number;
+  public type: ShipType;
+  public hull: number;
+  public maxHull: number;
+  public collisionRadius: number;
+  public collisionWidth: number;
+  public collisionHeight: number;
+  public collisionDamageMultiplier: number;
   
-  // Collision properties
-  collisionRadius: number;
-  collisionWidth: number;
-  collisionHeight: number;
-  collisionDamageMultiplier: number;
-  isColliding: boolean = false;
-  lastCollisionTime: number = 0;
-  collisionCooldown: number = 500; // ms
+  // Collision state
+  public isColliding: boolean = false;
+  public lastCollisionTime: number = 0;
+  public collisionCooldown: number = 500; // ms
   
-  // Ship control settings
-  throttleSetting: ThrottleSetting = ThrottleSetting.STOP;
-  rudderSetting: RudderSetting = RudderSetting.AHEAD;
-  
-  // Target speed based on throttle setting
-  targetSpeed: number = 0;
+  // Ship controls
+  public throttle: ThrottleSetting = ThrottleSetting.STOP;
+  public rudder: RudderSetting = RudderSetting.AHEAD;
+  public targetSpeed: number = 0;
   
   // PIXI sprite
-  sprite: PIXI.Sprite;
+  public sprite: PIXI.Graphics;
+  
+  // Add weapon cooldown properties
+  public primaryWeaponCooldown: number = 0;
+  public secondaryWeaponCooldown: number = 0;
+  
+  // Ship ID (used for network identification)
+  public id: string;
+  public playerId: string;
+  public color: number;
   
   constructor(props: ShipProps) {
-    // Set initial properties
     this.x = props.x;
     this.y = props.y;
     this.rotation = props.rotation;
@@ -110,10 +178,9 @@ export class Ship {
     this.maxSpeed = props.maxSpeed;
     this.acceleration = props.acceleration;
     this.rotationSpeed = props.rotationSpeed;
-    this.hull = props.hull;
-    this.maxHull = props.hull; // Store the initial hull value as maxHull
     this.type = props.type;
-    this.playerId = props.playerId || 'local';
+    this.hull = props.hull;
+    this.maxHull = props.hull;
     
     // Set collision properties based on ship type
     const collisionData = SHIP_COLLISION_DATA[this.type];
@@ -122,10 +189,14 @@ export class Ship {
     this.collisionHeight = collisionData.height;
     this.collisionDamageMultiplier = collisionData.damage;
     
-    // Assign a color based on player ID
-    this.color = this.getColorForPlayer(this.playerId);
+    // Set ship ID (use player ID if provided, otherwise generate a random one)
+    this.playerId = props.playerId || 'local';
+    this.id = this.playerId;
     
-    // Create ship sprite based on type
+    // Assign a color based on player ID
+    this.color = this.getColorForPlayer(this.id);
+    
+    // Create ship sprite
     this.sprite = this.createShipSprite();
     
     // Set initial position and rotation
@@ -150,7 +221,7 @@ export class Ship {
     return SHIP_COLORS[colorIndex];
   }
   
-  createShipSprite(): PIXI.Sprite {
+  createShipSprite(): PIXI.Graphics {
     // Create a graphics object for the ship
     const graphics = new PIXI.Graphics();
     
@@ -243,14 +314,7 @@ export class Ship {
     // graphics.lineStyle(1, 0xFF0000, 0.3);
     // graphics.drawCircle(0, 0, this.collisionRadius);
     
-    // Create a sprite from the graphics object
-    const sprite = new PIXI.Sprite();
-    sprite.addChild(graphics as any);
-    
-    // Set anchor to center
-    sprite.anchor.set(0.5);
-    
-    return sprite;
+    return graphics;
   }
   
   updateSpritePosition(): void {
@@ -265,7 +329,7 @@ export class Ship {
   
   // Set throttle to a specific setting
   setThrottle(setting: ThrottleSetting): void {
-    this.throttleSetting = setting;
+    this.throttle = setting;
     
     // Set target speed based on throttle setting
     switch (setting) {
@@ -292,40 +356,40 @@ export class Ship {
   
   // Increase throttle by one step
   increaseThrottle(): void {
-    if (this.throttleSetting < ThrottleSetting.FLANK) {
-      this.setThrottle(this.throttleSetting + 1);
+    if (this.throttle < ThrottleSetting.FLANK) {
+      this.setThrottle(this.throttle + 1);
     }
   }
   
   // Decrease throttle by one step
   decreaseThrottle(): void {
-    if (this.throttleSetting > ThrottleSetting.REVERSE_FULL) {
-      this.setThrottle(this.throttleSetting - 1);
+    if (this.throttle > ThrottleSetting.REVERSE_FULL) {
+      this.setThrottle(this.throttle - 1);
     }
   }
   
   // Set rudder to a specific setting
   setRudder(setting: RudderSetting): void {
-    this.rudderSetting = setting;
+    this.rudder = setting;
   }
   
   // Turn rudder more to the left
   turnRudderLeft(): void {
-    if (this.rudderSetting > RudderSetting.FULL_LEFT) {
-      this.rudderSetting--;
+    if (this.rudder > RudderSetting.FULL_LEFT) {
+      this.rudder--;
     }
   }
   
   // Turn rudder more to the right
   turnRudderRight(): void {
-    if (this.rudderSetting < RudderSetting.FULL_RIGHT) {
-      this.rudderSetting++;
+    if (this.rudder < RudderSetting.FULL_RIGHT) {
+      this.rudder++;
     }
   }
   
   // Center the rudder
   centerRudder(): void {
-    this.rudderSetting = RudderSetting.AHEAD;
+    this.rudder = RudderSetting.AHEAD;
   }
   
   // Legacy methods for compatibility
@@ -361,7 +425,7 @@ export class Ship {
     const directionFactor = this.speed >= 0 ? 1 : 0.5; // Less effective in reverse
     const rudderEffect = this.rotationSpeed * speedFactor * directionFactor;
     
-    switch (this.rudderSetting) {
+    switch (this.rudder) {
       case RudderSetting.FULL_LEFT:
         this.rotation -= rudderEffect * 1.0 * delta;
         break;
@@ -379,8 +443,8 @@ export class Ship {
     
     // Add slight drift based on current speed and turning
     // Ships tend to drift sideways when turning at speed
-    const driftFactor = 0.1 * speedFactor * Math.abs(this.rudderSetting);
-    const driftAngle = this.rotation + (this.rudderSetting < 0 ? -Math.PI/2 : Math.PI/2);
+    const driftFactor = 0.1 * speedFactor * Math.abs(this.rudder);
+    const driftAngle = this.rotation + (this.rudder < 0 ? -Math.PI/2 : Math.PI/2);
     
     // Update position based on speed and rotation
     // In PixiJS, 0 radians points to the right, and rotation is clockwise
@@ -389,13 +453,22 @@ export class Ship {
     this.y += Math.sin(this.rotation) * this.speed * delta;
     
     // Add drift component
-    if (Math.abs(this.rudderSetting) > 0 && Math.abs(this.speed) > 0.5) {
+    if (Math.abs(this.rudder) > 0 && Math.abs(this.speed) > 0.5) {
       this.x += Math.cos(driftAngle) * driftFactor * delta;
       this.y += Math.sin(driftAngle) * driftFactor * delta;
     }
     
     // Update sprite position and rotation
     this.updateSpritePosition();
+    
+    // Update weapon cooldowns
+    if (this.primaryWeaponCooldown > 0) {
+      this.primaryWeaponCooldown--;
+    }
+    
+    if (this.secondaryWeaponCooldown > 0) {
+      this.secondaryWeaponCooldown--;
+    }
   }
   
   /**
@@ -405,7 +478,7 @@ export class Ship {
    */
   checkCollision(otherShip: Ship): boolean {
     // Don't collide with self
-    if (this.playerId === otherShip.playerId) {
+    if (this.id === otherShip.id) {
       return false;
     }
     
@@ -417,7 +490,7 @@ export class Ship {
     
     // Debug collision
     if (distance < minDistance) {
-      console.log(`Collision check: ${this.playerId} and ${otherShip.playerId}`);
+      console.log(`Collision check: ${this.id} and ${otherShip.id}`);
       console.log(`Distance: ${distance}, Min Distance: ${minDistance}`);
     }
     
@@ -443,7 +516,7 @@ export class Ship {
     const relativeSpeed = Math.abs(this.speed - otherShip.speed);
     const thisImpactForce = Math.max(relativeSpeed * this.collisionDamageMultiplier, 0.5);
     
-    console.log(`Collision: ${this.playerId} hit ${otherShip.playerId}`);
+    console.log(`Collision: ${this.id} hit ${otherShip.id}`);
     console.log(`Damage amount: ${Math.ceil(thisImpactForce * 10)}, Impact force: ${thisImpactForce}`);
     
     // Always apply at least some damage on collision
@@ -451,8 +524,8 @@ export class Ship {
     this.takeDamage(actualDamage);
     
     // Report damage to the server if this is the local player
-    if (this.playerId === 'local' && networkManagerRef && otherShip.playerId !== 'local') {
-      networkManagerRef.reportDamage(otherShip.playerId, actualDamage);
+    if (this.id === 'local' && networkManagerRef && otherShip.id !== 'local') {
+      networkManagerRef.reportDamage(otherShip.id, actualDamage);
     }
     
     // Calculate collision response vector (direction from other ship to this ship)
@@ -529,7 +602,7 @@ export class Ship {
    */
   takeDamage(amount: number): void {
     this.hull -= amount;
-    console.log(`Ship ${this.playerId} took ${amount} damage. Hull: ${this.hull}/${this.maxHull}`);
+    console.log(`Ship ${this.id} took ${amount} damage. Hull: ${this.hull}/${this.maxHull}`);
     
     // Update ship appearance based on damage
     this.updateDamageAppearance();
@@ -587,7 +660,7 @@ export class Ship {
    * Destroy the ship
    */
   destroy(): void {
-    console.log(`Ship ${this.playerId} was destroyed!`);
+    console.log(`Ship ${this.id} was destroyed!`);
     
     // Create explosion effect
     this.createExplosionEffect();
@@ -603,5 +676,90 @@ export class Ship {
     // In a real implementation, we would create particle effects
     // For now, just log a message
     console.log(`Explosion at ${this.x}, ${this.y}`);
+  }
+  
+  // Add firing methods
+  public firePrimaryWeapon(): boolean {
+    if (this.primaryWeaponCooldown > 0) {
+      return false; // Weapon on cooldown
+    }
+    
+    const weaponProps = WEAPON_PROPERTIES[this.type][WeaponType.PRIMARY];
+    this.primaryWeaponCooldown = weaponProps.cooldown;
+    
+    // Return true to indicate weapon was fired
+    // The actual projectile creation will be handled by the Game class
+    return true;
+  }
+  
+  public fireSecondaryWeapon(): boolean {
+    if (this.secondaryWeaponCooldown > 0) {
+      return false; // Weapon on cooldown
+    }
+    
+    const weaponProps = WEAPON_PROPERTIES[this.type][WeaponType.SECONDARY];
+    this.secondaryWeaponCooldown = weaponProps.cooldown;
+    
+    // Return true to indicate weapon was fired
+    // The actual projectile creation will be handled by the Game class
+    return true;
+  }
+  
+  // Get weapon properties for projectile creation
+  public getWeaponProperties(weaponType: WeaponType): any {
+    return WEAPON_PROPERTIES[this.type][weaponType];
+  }
+  
+  // Calculate projectile spawn position based on ship position and rotation
+  public getProjectileSpawnPosition(weaponType: WeaponType, index: number = 0): { x: number, y: number, rotation: number } {
+    const weaponProps = WEAPON_PROPERTIES[this.type][weaponType];
+    const shipWidth = SHIP_COLLISION_DATA[this.type].width;
+    
+    // Calculate offset based on ship size and rotation
+    let offsetX = 0;
+    let offsetY = 0;
+    
+    // For primary weapons (cannons), offset to the sides
+    if (weaponType === WeaponType.PRIMARY) {
+      // Calculate spread for multiple projectiles
+      const spreadAngle = weaponProps.spread * (index - (weaponProps.count - 1) / 2);
+      
+      // Position cannons on the sides of the ship
+      offsetX = Math.cos(this.rotation + Math.PI/2) * (shipWidth/3);
+      offsetY = Math.sin(this.rotation + Math.PI/2) * (shipWidth/3);
+      
+      // Alternate sides for multiple cannons
+      if (weaponProps.count > 1) {
+        if (index % 2 === 0) {
+          offsetX = -offsetX;
+          offsetY = -offsetY;
+        }
+      }
+      
+      // Add forward offset
+      offsetX += Math.cos(this.rotation) * (shipWidth/2);
+      offsetY += Math.sin(this.rotation) * (shipWidth/2);
+      
+      return {
+        x: this.x + offsetX,
+        y: this.y + offsetY,
+        rotation: this.rotation + spreadAngle
+      };
+    } 
+    // For secondary weapons (torpedoes), offset to the front
+    else {
+      // Calculate spread for multiple projectiles
+      const spreadAngle = weaponProps.spread * (index - (weaponProps.count - 1) / 2);
+      
+      // Position torpedoes at the front of the ship
+      offsetX = Math.cos(this.rotation) * (shipWidth/2);
+      offsetY = Math.sin(this.rotation) * (shipWidth/2);
+      
+      return {
+        x: this.x + offsetX,
+        y: this.y + offsetY,
+        rotation: this.rotation + spreadAngle
+      };
+    }
   }
 } 

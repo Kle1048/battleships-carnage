@@ -1,7 +1,8 @@
 import * as PIXI from 'pixi.js';
-import { Ship, ThrottleSetting, RudderSetting, setNetworkManagerRef } from './Ship';
+import { Ship, ThrottleSetting, RudderSetting, setNetworkManagerRef, WeaponType } from './Ship';
 import { InputHandler } from './InputHandler';
 import { NetworkManager } from './NetworkManager';
+import { Projectile, ProjectileType } from './Projectile';
 
 // Game state
 let app: PIXI.Application;
@@ -21,12 +22,17 @@ let rejoinButton: PIXI.Graphics;
 let rejoinButtonText: PIXI.Text;
 let isGameOver: boolean = false;
 
+// Projectiles
+let projectiles: Projectile[] = [];
+let projectilesContainer: PIXI.Container;
+
 // Game world properties
 const WORLD_SIZE = 5000; // Size of the game world
 
 export function initGame(pixiApp: PIXI.Application): void {
   app = pixiApp;
   isGameOver = false;
+  projectiles = [];
   
   // Create a container for the game world
   const gameWorld = new PIXI.Container();
@@ -34,6 +40,10 @@ export function initGame(pixiApp: PIXI.Application): void {
   
   // Create water background
   createWaterBackground(gameWorld);
+  
+  // Create a container for projectiles
+  projectilesContainer = new PIXI.Container();
+  gameWorld.addChild(projectilesContainer as any);
   
   // Create player ship
   createPlayerShip(gameWorld);
@@ -47,6 +57,21 @@ export function initGame(pixiApp: PIXI.Application): void {
   // Set up network manager
   networkManager = new NetworkManager(gameWorld);
   networkManager.setLocalPlayer(playerShip);
+  
+  // Set up projectile callback
+  networkManager.setProjectileCallback((projectile: Projectile) => {
+    // Add projectile to the game
+    projectiles.push(projectile);
+    projectilesContainer.addChild(projectile.sprite as any);
+    
+    // Add firing effect
+    createFiringEffect(
+      projectile.x, 
+      projectile.y, 
+      projectile.rotation, 
+      projectile.type
+    );
+  });
   
   // Set network manager reference in Ship class
   setNetworkManagerRef(networkManager);
@@ -169,6 +194,15 @@ export function initGame(pixiApp: PIXI.Application): void {
     
     // Update input handler
     inputHandler.update();
+    
+    // Handle weapon controls
+    handleWeaponControls();
+    
+    // Update projectiles
+    updateProjectiles();
+    
+    // Check projectile collisions
+    checkProjectileCollisions();
   };
   
   // Start the game loop
@@ -599,4 +633,172 @@ function updateHealthBar(): void {
   // Reposition health bar if window is resized
   healthBar.position.set(app.screen.width / 2 - 100, 50);
   healthBarBg.position.set(app.screen.width / 2 - 100, 50);
+}
+
+function handleWeaponControls(): void {
+  if (!playerShip || isGameOver) return;
+  
+  // Fire primary weapon with left mouse button
+  if (inputHandler.isMouseButtonDown(0)) {
+    firePlayerWeapon(WeaponType.PRIMARY);
+  }
+  
+  // Fire secondary weapon with right mouse button
+  if (inputHandler.isMouseButtonDown(2)) {
+    firePlayerWeapon(WeaponType.SECONDARY);
+  }
+  
+  // Alternative keyboard controls
+  if (inputHandler.isKeyPressed('KeyF')) {
+    firePlayerWeapon(WeaponType.PRIMARY);
+  }
+  
+  if (inputHandler.isKeyPressed('KeyG')) {
+    firePlayerWeapon(WeaponType.SECONDARY);
+  }
+}
+
+function firePlayerWeapon(weaponType: WeaponType): void {
+  if (!playerShip) return;
+  
+  let fired = false;
+  
+  if (weaponType === WeaponType.PRIMARY) {
+    fired = playerShip.firePrimaryWeapon();
+  } else {
+    fired = playerShip.fireSecondaryWeapon();
+  }
+  
+  if (fired) {
+    // Get weapon properties
+    const weaponProps = playerShip.getWeaponProperties(weaponType);
+    
+    // Create projectiles
+    for (let i = 0; i < weaponProps.count; i++) {
+      const spawnPos = playerShip.getProjectileSpawnPosition(weaponType, i);
+      
+      const projectile = new Projectile(
+        spawnPos.x,
+        spawnPos.y,
+        spawnPos.rotation,
+        weaponProps.type,
+        playerShip
+      );
+      
+      // Add projectile to the game
+      projectiles.push(projectile);
+      projectilesContainer.addChild(projectile.sprite as any);
+      
+      // Report to server
+      networkManager.reportProjectileFired(projectile);
+      
+      // Add firing effect
+      createFiringEffect(spawnPos.x, spawnPos.y, spawnPos.rotation, weaponProps.type);
+    }
+  }
+}
+
+function createFiringEffect(x: number, y: number, rotation: number, type: ProjectileType): void {
+  // Create a simple muzzle flash effect
+  const flash = new PIXI.Graphics();
+  
+  if (type === ProjectileType.CANNON_BALL) {
+    // Cannon flash
+    flash.beginFill(0xffaa00, 0.8);
+    flash.drawCircle(0, 0, 10);
+    flash.endFill();
+  } else {
+    // Torpedo launch splash
+    flash.beginFill(0xaaaaaa, 0.6);
+    flash.drawCircle(0, 0, 15);
+    flash.endFill();
+  }
+  
+  flash.x = x;
+  flash.y = y;
+  
+  projectilesContainer.addChild(flash as any);
+  
+  // Animate the flash
+  let lifetime = 10;
+  const flashUpdate = () => {
+    lifetime--;
+    flash.alpha = lifetime / 10;
+    
+    if (lifetime <= 0) {
+      projectilesContainer.removeChild(flash as any);
+      app.ticker.remove(flashUpdate);
+    }
+  };
+  
+  app.ticker.add(flashUpdate);
+}
+
+function updateProjectiles(): void {
+  // Update each projectile and remove expired ones
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const projectile = projectiles[i];
+    
+    // Update projectile
+    const active = projectile.update();
+    
+    // Remove if no longer active
+    if (!active) {
+      projectile.destroy();
+      projectiles.splice(i, 1);
+    }
+  }
+}
+
+function checkProjectileCollisions(): void {
+  // Get all ships from network manager
+  const ships = networkManager.getAllShips();
+  
+  // Check each projectile against each ship
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const projectile = projectiles[i];
+    let hitDetected = false;
+    
+    for (const ship of ships) {
+      // Skip if ship is the source of the projectile
+      if (ship.id === projectile.sourceId) continue;
+      
+      // Check collision
+      if (projectile.checkCollision(ship)) {
+        // Apply damage
+        projectile.applyDamage(ship);
+        
+        // Report damage to server if we own the projectile
+        if (projectile.sourceShip === playerShip) {
+          networkManager.reportDamage(ship.id, projectile.damage);
+        }
+        
+        // Remove projectile
+        projectile.destroy();
+        projectiles.splice(i, 1);
+        
+        // Show damage indicator if player ship was hit
+        if (ship === playerShip) {
+          showDamageIndicator();
+        }
+        
+        hitDetected = true;
+        break;
+      }
+    }
+    
+    // Check if projectile is out of bounds
+    if (!hitDetected) {
+      const outOfBounds = 
+        projectile.x < -WORLD_SIZE/2 || 
+        projectile.x > WORLD_SIZE/2 || 
+        projectile.y < -WORLD_SIZE/2 || 
+        projectile.y > WORLD_SIZE/2;
+        
+      if (outOfBounds) {
+        projectile.destroy();
+        projectiles.splice(i, 1);
+      }
+    }
+  }
 } 

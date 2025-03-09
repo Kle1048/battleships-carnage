@@ -56,6 +56,7 @@ if (!fs.existsSync(faviconPath)) {
 // Game state
 const players = {};
 const ships = {};
+const projectiles = {};
 
 // Socket.IO connection handler
 io.on('connection', (socket) => {
@@ -95,6 +96,25 @@ io.on('connection', (socket) => {
         rotation: data.rotation
       });
     }
+  });
+  
+  // Handle projectile fired
+  socket.on('projectileFired', (projectileData) => {
+    console.log(`Projectile fired by ${socket.id}:`, projectileData.id);
+    
+    // Store the projectile
+    projectiles[projectileData.id] = {
+      ...projectileData,
+      timestamp: Date.now()
+    };
+    
+    // Broadcast to all other players
+    socket.broadcast.emit('projectileFired', projectileData);
+    
+    // Clean up old projectiles after their lifetime
+    setTimeout(() => {
+      delete projectiles[projectileData.id];
+    }, 10000); // 10 seconds should be enough for any projectile to expire
   });
   
   // Handle ship damage
