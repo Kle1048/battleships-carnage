@@ -290,4 +290,31 @@ This commit addresses several TypeScript errors and enhances the weapon system:
    - Fixed world-to-screen coordinate conversion for mouse targeting
 
 These changes make the combat system more intuitive and visually appealing,
-while fixing the TypeScript errors that were preventing compilation. 
+while fixing the TypeScript errors that were preventing compilation.
+
+[Cursor] Fix mouse-directed firing and add visual target indicator
+
+This commit addresses issues with the mouse-directed firing system:
+
+1. Fixed Coordinate Conversion:
+   - Improved the conversion between screen and world coordinates
+   - Properly calculated mouse position relative to the player ship
+   - Added debug logging to track mouse positions and angles
+
+2. Simplified Projectile Spawning:
+   - Reduced complexity in the projectile spawn position calculation
+   - Made projectiles spawn directly at the ship's position
+   - Removed unnecessary rotation offsets for more predictable aiming
+
+3. Added Visual Target Indicator:
+   - Added a red circle that shows where the mouse is pointing in the game world
+   - Helps players see exactly where their shots will go
+   - Makes aiming more intuitive and predictable
+
+4. Enhanced Debugging:
+   - Added console logging for mouse positions and firing angles
+   - Improved error detection for coordinate conversion issues
+   - Made it easier to diagnose firing direction problems
+
+These changes make the combat system more responsive and intuitive, ensuring
+that projectiles consistently fire in the direction the player is pointing. 

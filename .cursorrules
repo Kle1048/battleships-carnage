@@ -113,39 +113,27 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - Ships can be upgraded through combat and collecting wreckage
 - Realistic naval physics with momentum-based movement
 
-### Current Task: Fix TypeScript Errors and Enhance Weapon System
+### Current Task: Fix Mouse-Directed Firing Issues
 
-#### Current Issues to Fix
+#### Issues Fixed
+[X] Improved coordinate conversion between screen and world space
+[X] Fixed angle calculation from ship to mouse
+[X] Simplified projectile spawn positions for more consistent firing
+[X] Added visual indicator for mouse target to help with debugging
+
+#### Implementation Approach
+1. Fixed the coordinate conversion between screen and world space by using player-centered calculations
+2. Added debug logging to track mouse positions and angles
+3. Simplified projectile spawn positions to make aiming more predictable
+4. Added a visual red circle indicator to show the target position
+
+### Progress on Combat System
 [X] Phase 1: Project Setup & Basic Game Engine
 [X] Phase 2: Ship Movement & Controls
 [WIP] Phase 3: Combat System
 [X] Phase 4: Multiplayer Integration
 [ ] Phase 5: Progression System
 [ ] Phase 6: Polish & Optimization
-
-#### TypeScript Errors to Fix
-[X] Fix 'throttleSetting' property error in Game.ts (should use 'throttle')
-[X] Fix 'rudderSetting' property error in Game.ts (should use 'rudder')
-[X] Fix type error in Projectile.ts with removeChild method
-
-#### Weapon System Enhancements
-[X] Make projectiles fire toward mouse pointer direction
-[X] Add limited range to projectiles
-[X] Create water splash effect when projectiles expire
-[ ] Restore controls display
-
-### Implementation Approach
-1. First, fix the TypeScript errors by updating property names and adding type assertions
-2. Implement mouse-directed firing by calculating angle between ship and mouse position
-3. Add range limit to projectiles and water splash effect
-4. Restore and fix the controls display
-
-### Phase 3 Tasks (Combat System)
-[WIP] Implement weapon systems (cannons, torpedoes, rockets)
-[X] Add projectile physics
-[X] Implement damage system
-[X] Create visual effects for combat
-[X] Add ship health/destruction mechanics
 
 ### Weapon Systems Tasks
 [X] Design weapon types (cannons, torpedoes)
@@ -156,21 +144,5 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 [X] Add visual effects for firing and impacts
 [X] Implement damage calculation based on weapon type
 [X] Synchronize weapons and projectiles across the network
-[X] Make projectiles fire toward mouse pointer
+[X] Make projectiles fire toward mouse pointer (fixed)
 [X] Add limited range and water splash effect
-
-### Collision Detection Tasks
-[X] Implement basic ship-to-ship collision detection
-[X] Add collision response (ships bounce/push each other)
-[X] Implement damage on collision based on relative speed
-[X] Add visual feedback for collisions (particle effects)
-[X] Synchronize collisions across the network
-
-### Ship Damage System Tasks
-[X] Add health property to ships
-[X] Implement damage application function
-[X] Create visual indicators for ship health
-[X] Add smoke/fire effects for damaged ships
-[X] Implement ship destruction when health reaches zero
-[X] Add ship respawning after destruction
-[X] Synchronize damage and destruction across the network

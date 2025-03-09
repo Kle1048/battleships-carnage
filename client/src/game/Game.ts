@@ -26,6 +26,9 @@ let isGameOver: boolean = false;
 let projectiles: Projectile[] = [];
 let projectilesContainer: PIXI.Container;
 
+// Mouse target indicator
+let mouseTargetIndicator: PIXI.Graphics;
+
 // Game world properties
 const WORLD_SIZE = 5000; // Size of the game world
 
@@ -44,6 +47,14 @@ export function initGame(pixiApp: PIXI.Application): void {
   // Create a container for projectiles
   projectilesContainer = new PIXI.Container();
   gameWorld.addChild(projectilesContainer as any);
+  
+  // Create mouse target indicator
+  mouseTargetIndicator = new PIXI.Graphics();
+  mouseTargetIndicator.beginFill(0xff0000, 0.5);
+  mouseTargetIndicator.drawCircle(0, 0, 10);
+  mouseTargetIndicator.endFill();
+  mouseTargetIndicator.visible = false;
+  gameWorld.addChild(mouseTargetIndicator as any);
   
   // Create player ship
   createPlayerShip(gameWorld);
@@ -203,6 +214,9 @@ export function initGame(pixiApp: PIXI.Application): void {
     
     // Check projectile collisions
     checkProjectileCollisions();
+    
+    // Update mouse target indicator
+    updateMouseTargetIndicator();
   };
   
   // Start the game loop
@@ -675,16 +689,27 @@ function firePlayerWeapon(weaponType: WeaponType): void {
     
     // Get mouse position in world coordinates
     const mousePos = inputHandler.getMousePosition();
+    
+    // Convert screen coordinates to world coordinates
+    // Since the camera is centered on the player, we need to calculate the offset
+    // from the center of the screen to the mouse, and then add that to the player's position
     const worldMousePos = {
-      x: mousePos.x + app.stage.x - app.screen.width / 2,
-      y: mousePos.y + app.stage.y - app.screen.height / 2
+      x: playerShip.x + (mousePos.x - app.screen.width / 2),
+      y: playerShip.y + (mousePos.y - app.screen.height / 2)
     };
+    
+    // Log for debugging
+    console.log('Mouse Position:', mousePos);
+    console.log('Player Position:', { x: playerShip.x, y: playerShip.y });
+    console.log('World Mouse Position:', worldMousePos);
     
     // Calculate angle from ship to mouse
     const angleToMouse = Math.atan2(
       worldMousePos.y - playerShip.y,
       worldMousePos.x - playerShip.x
     );
+    
+    console.log('Angle to Mouse:', angleToMouse * (180 / Math.PI) + '°');
     
     // Create projectiles
     for (let i = 0; i < weaponProps.count; i++) {
@@ -860,4 +885,25 @@ function checkProjectileCollisions(): void {
       }
     }
   }
+}
+
+function updateMouseTargetIndicator(): void {
+  if (!playerShip || isGameOver) {
+    mouseTargetIndicator.visible = false;
+    return;
+  }
+  
+  // Get mouse position in world coordinates
+  const mousePos = inputHandler.getMousePosition();
+  
+  // Convert screen coordinates to world coordinates
+  const worldMousePos = {
+    x: playerShip.x + (mousePos.x - app.screen.width / 2),
+    y: playerShip.y + (mousePos.y - app.screen.height / 2)
+  };
+  
+  // Update indicator position
+  mouseTargetIndicator.x = worldMousePos.x;
+  mouseTargetIndicator.y = worldMousePos.y;
+  mouseTargetIndicator.visible = true;
 } 

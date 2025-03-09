@@ -721,36 +721,18 @@ export class Ship {
     
     // For primary weapons (cannons), offset to the sides
     if (weaponType === WeaponType.PRIMARY) {
-      // Calculate spread for multiple projectiles
-      const spreadAngle = weaponProps.spread * (index - (weaponProps.count - 1) / 2);
-      
       // Position cannons on the sides of the ship
-      offsetX = Math.cos(this.rotation + Math.PI/2) * (shipWidth/3);
-      offsetY = Math.sin(this.rotation + Math.PI/2) * (shipWidth/3);
-      
-      // Alternate sides for multiple cannons
-      if (weaponProps.count > 1) {
-        if (index % 2 === 0) {
-          offsetX = -offsetX;
-          offsetY = -offsetY;
-        }
-      }
-      
-      // Add forward offset
-      offsetX += Math.cos(this.rotation) * (shipWidth/2);
-      offsetY += Math.sin(this.rotation) * (shipWidth/2);
+      // For simplicity, we'll just place them at the ship's position
+      // This makes aiming more predictable
       
       return {
-        x: this.x + offsetX,
-        y: this.y + offsetY,
-        rotation: this.rotation + spreadAngle
+        x: this.x,
+        y: this.y,
+        rotation: 0 // The rotation will be set by the firing function based on mouse position
       };
     } 
     // For secondary weapons (torpedoes), offset to the front
     else {
-      // Calculate spread for multiple projectiles
-      const spreadAngle = weaponProps.spread * (index - (weaponProps.count - 1) / 2);
-      
       // Position torpedoes at the front of the ship
       offsetX = Math.cos(this.rotation) * (shipWidth/2);
       offsetY = Math.sin(this.rotation) * (shipWidth/2);
@@ -758,7 +740,7 @@ export class Ship {
       return {
         x: this.x + offsetX,
         y: this.y + offsetY,
-        rotation: this.rotation + spreadAngle
+        rotation: 0 // The rotation will be set by the firing function based on mouse position
       };
     }
   }
