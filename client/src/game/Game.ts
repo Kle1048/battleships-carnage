@@ -83,17 +83,29 @@ export function initGame(pixiApp: PIXI.Application): void {
   
   // Set up projectile callback
   networkManager.setProjectileCallback((projectile: Projectile) => {
-    // Add projectile to the game
-    projectiles.push(projectile);
-    projectilesContainer.addChild(projectile.sprite as any);
-    
-    // Add firing effect
-    createFiringEffect(
-      projectile.x, 
-      projectile.y, 
-      projectile.rotation, 
-      projectile.type
-    );
+    try {
+      // Add projectile to the game
+      projectiles.push(projectile);
+      
+      // Ensure the projectile sprite is created before adding to container
+      if (projectile.sprite) {
+        projectilesContainer.addChild(projectile.sprite as any);
+        
+        // Add firing effect
+        createFiringEffect(
+          projectile.x, 
+          projectile.y, 
+          projectile.rotation, 
+          projectile.type
+        );
+        
+        console.log('Network projectile added successfully:', projectile.id);
+      } else {
+        console.error('Failed to add network projectile: sprite is null');
+      }
+    } catch (error) {
+      console.error('Error handling network projectile:', error);
+    }
   });
   
   // Set network manager reference in Ship class
@@ -688,7 +700,19 @@ function handleWeaponControls(): void {
 }
 
 function firePlayerWeapon(weaponType: WeaponType): void {
-  if (!playerShip) return;
+  if (!playerShip) {
+    console.error('Cannot fire weapon: playerShip is null');
+    return;
+  }
+  
+  // Log weapon state before firing
+  console.log(`Firing ${weaponType} weapon. Ship state:`, {
+    type: playerShip.type,
+    position: { x: playerShip.x, y: playerShip.y },
+    rotation: playerShip.rotation * (180 / Math.PI) + '°',
+    primaryCooldown: playerShip.primaryWeaponCooldown,
+    secondaryCooldown: playerShip.secondaryWeaponCooldown
+  });
   
   let fired = false;
   
@@ -701,9 +725,19 @@ function firePlayerWeapon(weaponType: WeaponType): void {
   if (fired) {
     // Get weapon properties
     const weaponProps = playerShip.getWeaponProperties(weaponType);
+    if (!weaponProps) {
+      console.error(`No weapon properties found for ${weaponType} on ship type ${playerShip.type}`);
+      return;
+    }
     
     // Get mouse position in world coordinates
     const mousePos = inputHandler.getMousePosition();
+    if (!mousePos) {
+      console.error('Cannot fire weapon: mouse position is null');
+      return;
+    }
+    
+    console.log('Mouse position for firing:', mousePos);
     
     // Convert screen coordinates to world coordinates
     // Since the camera is centered on the player, we need to calculate the offset
@@ -725,87 +759,151 @@ function firePlayerWeapon(weaponType: WeaponType): void {
     );
     
     console.log('Angle to Mouse:', angleToMouse * (180 / Math.PI) + '°');
+    console.log('Ship Rotation:', playerShip.rotation * (180 / Math.PI) + '°');
     
     // Create projectiles
     for (let i = 0; i < weaponProps.count; i++) {
+      // Get spawn position with initial rotation
       const spawnPos = playerShip.getProjectileSpawnPosition(weaponType, i);
       
       // Apply spread around the mouse direction
       const spreadAngle = weaponProps.spread * (i - (weaponProps.count - 1) / 2);
+      
+      // Use the angle to mouse for direction, not the ship's rotation
       const finalAngle = angleToMouse + spreadAngle;
       
-      const projectile = new Projectile(
-        spawnPos.x,
-        spawnPos.y,
-        finalAngle,
-        weaponProps.type,
-        playerShip
-      );
-      
-      // Add projectile to the game
-      projectiles.push(projectile);
-      projectilesContainer.addChild(projectile.sprite as any);
-      
-      // Report to server
-      networkManager.reportProjectileFired(projectile);
-      
-      // Add firing effect
-      createFiringEffect(spawnPos.x, spawnPos.y, finalAngle, weaponProps.type);
+      try {
+        // Create the projectile with proper error handling
+        const projectile = new Projectile(
+          spawnPos.x,
+          spawnPos.y,
+          finalAngle, // Use the calculated angle to mouse
+          weaponProps.type,
+          playerShip
+        );
+        
+        // Add projectile to the game
+        projectiles.push(projectile);
+        
+        // Ensure the projectile sprite is created before adding to container
+        if (projectile.sprite) {
+          projectilesContainer.addChild(projectile.sprite as any);
+          
+          // Report to server
+          networkManager.reportProjectileFired(projectile);
+          
+          // Add firing effect
+          createFiringEffect(spawnPos.x, spawnPos.y, finalAngle, weaponProps.type);
+          
+          console.log('Projectile created successfully:', projectile.id, 'with angle:', finalAngle * (180 / Math.PI) + '°');
+        } else {
+          console.error('Failed to create projectile sprite');
+        }
+      } catch (error) {
+        console.error('Error creating projectile:', error);
+      }
     }
+  } else {
+    console.log(`Weapon ${weaponType} could not be fired (on cooldown or other issue)`);
   }
 }
 
 function createFiringEffect(x: number, y: number, rotation: number, type: ProjectileType): void {
-  // Create a simple muzzle flash effect
-  const flash = new PIXI.Graphics();
-  
-  if (type === ProjectileType.CANNON_BALL) {
-    // Cannon flash
-    flash.beginFill(0xffaa00, 0.8);
-    flash.drawCircle(0, 0, 10);
-    flash.endFill();
-  } else {
-    // Torpedo launch splash
-    flash.beginFill(0xaaaaaa, 0.6);
-    flash.drawCircle(0, 0, 15);
-    flash.endFill();
-  }
-  
-  flash.x = x;
-  flash.y = y;
-  
-  projectilesContainer.addChild(flash as any);
-  
-  // Animate the flash
-  let lifetime = 10;
-  const flashUpdate = () => {
-    lifetime--;
-    flash.alpha = lifetime / 10;
+  try {
+    // Create a simple muzzle flash effect
+    const flash = new PIXI.Graphics();
     
-    if (lifetime <= 0) {
-      projectilesContainer.removeChild(flash as any);
-      app.ticker.remove(flashUpdate);
+    if (type === ProjectileType.CANNON_BALL) {
+      // Cannon flash
+      flash.beginFill(0xffaa00, 0.8);
+      flash.drawCircle(0, 0, 10);
+      flash.endFill();
+    } else {
+      // Torpedo launch splash
+      flash.beginFill(0xaaaaaa, 0.6);
+      flash.drawCircle(0, 0, 15);
+      flash.endFill();
     }
-  };
-  
-  app.ticker.add(flashUpdate);
+    
+    flash.x = x;
+    flash.y = y;
+    
+    projectilesContainer.addChild(flash as any);
+    
+    // Check if app and ticker are available
+    if (!app || !app.ticker) {
+      console.warn('Cannot animate flash: app.ticker is null. Using setTimeout fallback.');
+      
+      // Fallback to setTimeout for animation if ticker is not available
+      let lifetime = 10;
+      const fadeInterval = setInterval(() => {
+        lifetime--;
+        flash.alpha = lifetime / 10;
+        
+        if (lifetime <= 0) {
+          clearInterval(fadeInterval);
+          if (flash.parent) {
+            flash.parent.removeChild(flash as any);
+          }
+        }
+      }, 50); // 50ms intervals for roughly similar timing
+      
+      return;
+    }
+    
+    // Animate the flash using ticker if available
+    let lifetime = 10;
+    const flashUpdate = () => {
+      lifetime--;
+      flash.alpha = lifetime / 10;
+      
+      if (lifetime <= 0) {
+        if (flash.parent) {
+          flash.parent.removeChild(flash as any);
+        }
+        app.ticker.remove(flashUpdate);
+      }
+    };
+    
+    app.ticker.add(flashUpdate);
+  } catch (error) {
+    console.error('Error creating firing effect:', error);
+  }
 }
 
 function updateProjectiles(): void {
   // Update each projectile and remove expired ones
   for (let i = projectiles.length - 1; i >= 0; i--) {
-    const projectile = projectiles[i];
-    
-    // Update projectile
-    const active = projectile.update();
-    
-    // Remove if no longer active
-    if (!active) {
-      // Create splash effect where the projectile ended
-      createWaterSplashEffect(projectile.x, projectile.y);
+    try {
+      const projectile = projectiles[i];
       
-      // Destroy and remove projectile
-      projectile.destroy();
+      if (!projectile) {
+        console.warn('Undefined projectile found at index', i);
+        projectiles.splice(i, 1);
+        continue;
+      }
+      
+      // Update projectile
+      const active = projectile.update();
+      
+      // Remove if no longer active
+      if (!active) {
+        try {
+          // Create splash effect where the projectile ended
+          createWaterSplashEffect(projectile.x, projectile.y);
+          
+          // Destroy and remove projectile
+          projectile.destroy();
+        } catch (innerError) {
+          console.error('Error cleaning up projectile:', innerError);
+        } finally {
+          // Always remove the projectile from the array
+          projectiles.splice(i, 1);
+        }
+      }
+    } catch (error) {
+      console.error('Error in updateProjectiles:', error);
+      // Remove problematic projectile
       projectiles.splice(i, 1);
     }
   }
