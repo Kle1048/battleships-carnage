@@ -1,5 +1,5 @@
 import * as PIXI from 'pixi.js';
-import { Ship, ThrottleSetting, RudderSetting, setNetworkManagerRef, WeaponType } from './Ship';
+import { Ship, ThrottleSetting, RudderSetting, setNetworkManagerRef, WeaponType, SHIP_COLORS } from './Ship';
 import { InputHandler } from './InputHandler';
 import { NetworkManager } from './NetworkManager';
 import { Projectile, ProjectileType } from './Projectile';
@@ -22,6 +22,9 @@ let rejoinButton: PIXI.Graphics;
 let rejoinButtonText: PIXI.Text;
 let isGameOver: boolean = false;
 
+// Frame counter for periodic updates
+let frameCounter: number = 0;
+
 // Projectiles
 let projectiles: Projectile[] = [];
 let projectilesContainer: PIXI.Container;
@@ -38,10 +41,42 @@ const ENEMY_INDICATOR_OPACITY = 0.7; // Reduced opacity to make it less prominen
 // Game world properties
 const WORLD_SIZE = 5000; // Size of the game world
 
+let colorPickerContainer: PIXI.Container;
+let colorPickerVisible: boolean = false;
+
+// Add notification system
+let notificationText: PIXI.Text;
+let notificationTimeout: number | null = null;
+
+// Add player list display
+let playerListContainer: PIXI.Container;
+let playerListBackground: PIXI.Graphics;
+let playerListText: PIXI.Text;
+let playerListVisible: boolean = true;
+let playerListToggleButton: PIXI.Graphics;
+let playerListToggleText: PIXI.Text;
+
+// Add debug button
+let debugButton: PIXI.Graphics;
+let debugButtonText: PIXI.Text;
+
+// Add position update counter
+let positionUpdateCounter: number = 0;
+const POSITION_UPDATE_INTERVAL: number = 3; // Send position updates every 3 frames
+
 export function initGame(pixiApp: PIXI.Application): InputHandler {
   app = pixiApp;
   isGameOver = false;
   projectiles = [];
+  
+  // Check if running on mobile device
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  console.log(`Device detection: ${isMobile ? 'Mobile' : 'Desktop'} device detected`);
+  console.log(`Screen size: ${window.innerWidth}x${window.innerHeight}`);
+  console.log(`Pixel ratio: ${window.devicePixelRatio}`);
+  
+  // Initialize ship color from storage
+  Ship.initializeColorFromStorage();
   
   // Create a container for the game world
   const gameWorld = new PIXI.Container();
@@ -193,6 +228,127 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
   // Create game over container (initially hidden)
   createGameOverScreen();
   
+  // Create color picker UI
+  createColorPicker();
+  
+  // Add color picker button to controls text
+  controlsText.text += '\nC - Color Picker';
+  
+  // Create notification text with larger font and more visible colors
+  notificationText = new PIXI.Text('', {
+    fontFamily: 'Arial',
+    fontSize: 24, // Increased font size
+    fill: 0xFFFF00, // Yellow color for better visibility
+    align: 'center',
+    dropShadow: true,
+    dropShadowColor: 0x000000,
+    dropShadowDistance: 3,
+    stroke: 0x000000,
+    strokeThickness: 3
+  });
+  notificationText.anchor.set(0.5, 0);
+  notificationText.position.set(app.screen.width / 2, 120);
+  notificationText.alpha = 0; // Start invisible
+  uiContainer.addChild(notificationText as any);
+  
+  // Create player list container
+  playerListContainer = new PIXI.Container();
+  uiContainer.addChild(playerListContainer as unknown as PIXI.DisplayObject);
+  
+  // Create semi-transparent background for player list
+  playerListBackground = new PIXI.Graphics();
+  playerListBackground.beginFill(0x000000, 0.6);
+  playerListBackground.drawRect(0, 0, 200, 150);
+  playerListBackground.endFill();
+  playerListContainer.addChild(playerListBackground as unknown as PIXI.DisplayObject);
+  
+  // Create player list text
+  playerListText = new PIXI.Text('Players Online:\n', {
+    fontFamily: 'Arial',
+    fontSize: 16,
+    fill: 0xFFFFFF,
+    align: 'left',
+    dropShadow: true,
+    dropShadowColor: 0x000000,
+    dropShadowDistance: 2
+  });
+  playerListText.position.set(10, 10);
+  playerListContainer.addChild(playerListText as unknown as PIXI.DisplayObject);
+  
+  // Position player list in top left corner instead of top right to avoid overlap with controls
+  playerListContainer.position.set(20, 100);
+  
+  // If on mobile, adjust UI elements for better visibility
+  if (isMobile) {
+    console.log('Applying mobile optimizations');
+    
+    // Make notification text larger
+    notificationText.style.fontSize = 28;
+    notificationText.style.strokeThickness = 4;
+    
+    // Make player list larger
+    playerListText.style.fontSize = 20;
+    
+    // Position player list for better visibility on mobile
+    playerListContainer.position.set(10, 150); // Move it down a bit more on mobile
+  }
+  
+  // Create toggle button for player list
+  playerListToggleButton = new PIXI.Graphics();
+  playerListToggleButton.beginFill(0x0077be);
+  playerListToggleButton.drawRoundedRect(0, 0, 30, 30, 5);
+  playerListToggleButton.endFill();
+  playerListToggleButton.position.set(20, 70);
+  playerListToggleButton.interactive = true;
+  playerListToggleButton.cursor = 'pointer';
+  uiContainer.addChild(playerListToggleButton as unknown as PIXI.DisplayObject);
+  
+  // Create toggle button text
+  playerListToggleText = new PIXI.Text('P', {
+    fontFamily: 'Arial',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fill: 0xFFFFFF,
+    align: 'center'
+  });
+  playerListToggleText.anchor.set(0.5);
+  playerListToggleText.position.set(playerListToggleButton.x + 15, playerListToggleButton.y + 15);
+  uiContainer.addChild(playerListToggleText as unknown as PIXI.DisplayObject);
+  
+  // Add click event to toggle button
+  playerListToggleButton.on('pointerdown', togglePlayerList);
+  
+  // Create debug button
+  debugButton = new PIXI.Graphics();
+  debugButton.beginFill(0xFF0000, 0.7);
+  debugButton.drawRoundedRect(0, 0, 30, 30, 5);
+  debugButton.endFill();
+  debugButton.position.set(60, 70);
+  debugButton.interactive = true;
+  debugButton.cursor = 'pointer';
+  uiContainer.addChild(debugButton as unknown as PIXI.DisplayObject);
+  
+  // Create debug button text
+  debugButtonText = new PIXI.Text('D', {
+    fontFamily: 'Arial',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fill: 0xFFFFFF,
+    align: 'center'
+  });
+  debugButtonText.anchor.set(0.5);
+  debugButtonText.position.set(debugButton.x + 15, debugButton.y + 15);
+  uiContainer.addChild(debugButtonText as unknown as PIXI.DisplayObject);
+  
+  // Add click event to debug button
+  debugButton.on('pointerdown', () => {
+    console.log('Debug button clicked');
+    networkManager.debugCheckPlayerVisibility();
+    networkManager.debugDamageSynchronization();
+    networkManager.debugTestCollision();
+    showNotification('Running debug checks...', 2000);
+  });
+  
   // Set up game loop
   gameLoop = (delta: number) => {
     if (isGameOver) {
@@ -224,8 +380,12 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
       showGameOver();
     }
     
-    // Send position update to server
-    networkManager.updatePosition();
+    // Send position update to server (more frequently)
+    positionUpdateCounter++;
+    if (positionUpdateCounter >= POSITION_UPDATE_INTERVAL) {
+      networkManager.updatePosition();
+      positionUpdateCounter = 0;
+    }
     
     // Update input handler
     inputHandler.update();
@@ -244,6 +404,18 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
     
     // Update enemy indicator
     updateEnemyIndicator();
+    
+    // Update player list every 30 frames (about 0.5 seconds)
+    frameCounter++;
+    if (frameCounter % 30 === 0) {
+      updatePlayerList();
+    }
+    
+    // Run debug check every 5 seconds (300 frames at 60fps)
+    if (frameCounter % 300 === 0) {
+      networkManager.debugCheckPlayerVisibility();
+      networkManager.debugDamageSynchronization();
+    }
   };
   
   // Start the game loop
@@ -257,28 +429,38 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
  * Create the player ship
  */
 function createPlayerShip(gameWorld: PIXI.Container): void {
-  // Start the player in the center of the world, but the server will update this position
-  // We're using the center as a safe default until we get the real position from the server
-  playerShip = new Ship({
-    x: WORLD_SIZE / 2,
-    y: WORLD_SIZE / 2,
-    rotation: 0,
-    speed: 0,
-    maxSpeed: 5,
-    acceleration: 0.1,
-    rotationSpeed: 0.05,
-    hull: 100,
-    type: 'destroyer',
-    playerId: 'local' // Local player always has 'local' as ID
-  });
-  
-  // Add the ship to the game world
-  gameWorld.addChild(playerShip.sprite as any);
-  
-  console.log('Player ship created at initial position:', {
-    x: playerShip.x,
-    y: playerShip.y
-  });
+  try {
+    // Start the player in the center of the world, but the server will update this position
+    // We're using the center as a safe default until we get the real position from the server
+    playerShip = new Ship({
+      x: WORLD_SIZE / 2,
+      y: WORLD_SIZE / 2,
+      rotation: 0,
+      speed: 0,
+      maxSpeed: 5,
+      acceleration: 0.1,
+      rotationSpeed: 0.05,
+      hull: 100,
+      type: 'destroyer',
+      playerId: 'local', // Local player always has 'local' as ID
+      playerName: localStorage.getItem('playerName') || 'Unknown Player'
+    });
+    
+    // Add the ship sprite to the game world
+    gameWorld.addChild(playerShip.sprite as unknown as PIXI.DisplayObject);
+    
+    // Add the name container to the game world
+    if ((playerShip as any).nameContainer) {
+      gameWorld.addChild((playerShip as any).nameContainer as unknown as PIXI.DisplayObject);
+    }
+    
+    console.log('Player ship created at initial position:', {
+      x: playerShip.x,
+      y: playerShip.y
+    });
+  } catch (error) {
+    console.error('Error creating player ship:', error);
+  }
 }
 
 /**
@@ -470,6 +652,18 @@ function handleShipControls(): void {
       playerShip.setRudder(RudderSetting.AHEAD);
     }
   }
+  
+  // Toggle color picker with 'C' key
+  if (inputHandler.isKeyPressed('KeyC')) {
+    toggleColorPicker();
+    inputHandler.setKeyProcessed('KeyC');
+  }
+  
+  // Toggle player list with 'P' key
+  if (inputHandler.isKeyPressed('KeyP')) {
+    togglePlayerList();
+    inputHandler.setKeyProcessed('KeyP');
+  }
 }
 
 function updateConnectionStatus(): void {
@@ -505,16 +699,14 @@ function updateConnectionStatus(): void {
 }
 
 function updateControlsText(): void {
-  // Display controls information
-  let text = 'Controls:';
-  text += '\nW/S - Throttle Up/Down';
-  text += '\nA/D - Rudder Left/Right';
-  text += '\nSpace - Center Rudder';
-  text += '\n1-6 - Direct Throttle';
-  text += '\nQ/E - Full Rudder L/R';
-  text += '\nR - Center Rudder';
-  
-  controlsText.text = text;
+  controlsText.text = 'Controls:\n';
+  controlsText.text += 'W/S - Throttle\n';
+  controlsText.text += 'A/D - Rudder\n';
+  controlsText.text += 'Q - Center Rudder\n';
+  controlsText.text += 'Left Click - Fire Cannons\n';
+  controlsText.text += 'Right Click - Fire Torpedoes\n';
+  controlsText.text += 'C - Color Picker\n';
+  controlsText.text += 'P - Toggle Player List';
 }
 
 function updateShipStatusText(): void {
@@ -1000,6 +1192,11 @@ function checkProjectileCollisions(): void {
   // Get all ships from network manager
   const ships = networkManager.getAllShips();
   
+  // Log collision check for debugging (every 60 frames)
+  if (frameCounter % 60 === 0) {
+    console.log(`Checking projectile collisions: ${projectiles.length} projectiles, ${ships.length} ships`);
+  }
+  
   // Check each projectile against each ship
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const projectile = projectiles[i];
@@ -1011,12 +1208,16 @@ function checkProjectileCollisions(): void {
       
       // Check collision
       if (projectile.checkCollision(ship)) {
-        // Apply damage
-        projectile.applyDamage(ship);
+        hitDetected = true;
         
-        // Report damage to server if we own the projectile
+        // Only report damage to server, don't apply locally
+        // The server will broadcast the damage and all clients will apply it consistently
         if (projectile.sourceShip === playerShip) {
+          console.log(`Reporting damage to server: target=${ship.id}, amount=${projectile.damage}`);
           networkManager.reportDamage(ship.id, projectile.damage);
+          
+          // Create visual effect for hit, but don't apply damage
+          projectile.createHitEffect();
         }
         
         // Remove projectile
@@ -1028,22 +1229,8 @@ function checkProjectileCollisions(): void {
           showDamageIndicator();
         }
         
-        hitDetected = true;
+        // Break out of the inner loop since this projectile is now destroyed
         break;
-      }
-    }
-    
-    // Check if projectile is out of bounds
-    if (!hitDetected) {
-      const outOfBounds = 
-        projectile.x < -WORLD_SIZE/2 || 
-        projectile.x > WORLD_SIZE/2 || 
-        projectile.y < -WORLD_SIZE/2 || 
-        projectile.y > WORLD_SIZE/2;
-        
-      if (outOfBounds) {
-        projectile.destroy();
-        projectiles.splice(i, 1);
       }
     }
   }
@@ -1147,4 +1334,171 @@ function findNearestEnemyShip(): Ship | null {
   }
   
   return nearestShip;
+}
+
+function createColorPicker(): void {
+  colorPickerContainer = new PIXI.Container();
+  colorPickerContainer.visible = false;
+  app.stage.addChild(colorPickerContainer as any);
+  
+  // Semi-transparent background
+  const bg = new PIXI.Graphics();
+  bg.beginFill(0x000000, 0.7);
+  bg.drawRect(0, 0, 300, 150);
+  bg.endFill();
+  colorPickerContainer.addChild(bg as any);
+  
+  // Title text
+  const title = new PIXI.Text('Choose Ship Color', {
+    fontFamily: 'Arial',
+    fontSize: 20,
+    fill: 0xFFFFFF
+  });
+  title.position.set(150, 10);
+  title.anchor.set(0.5, 0);
+  colorPickerContainer.addChild(title as any);
+  
+  // Create color swatches
+  const swatchSize = 30;
+  const padding = 10;
+  const startX = 20;
+  const startY = 50;
+  let currentX = startX;
+  let currentY = startY;
+  
+  SHIP_COLORS.forEach((color, index) => {
+    const swatch = new PIXI.Graphics();
+    swatch.beginFill(color);
+    swatch.drawRect(0, 0, swatchSize, swatchSize);
+    swatch.endFill();
+    swatch.position.set(currentX, currentY);
+    swatch.interactive = true;
+    swatch.cursor = 'pointer';
+    
+    // Add click handler
+    swatch.on('pointerdown', () => {
+      if (playerShip) {
+        playerShip.updateColor(color);
+        toggleColorPicker();
+      }
+    });
+    
+    colorPickerContainer.addChild(swatch as any);
+    
+    // Update position for next swatch
+    currentX += swatchSize + padding;
+    if (currentX > 250) {
+      currentX = startX;
+      currentY += swatchSize + padding;
+    }
+  });
+  
+  // Position the container in the center of the screen
+  colorPickerContainer.position.set(
+    app.screen.width / 2 - 150,
+    app.screen.height / 2 - 75
+  );
+}
+
+function toggleColorPicker(): void {
+  colorPickerVisible = !colorPickerVisible;
+  colorPickerContainer.visible = colorPickerVisible;
+}
+
+// Update the window resize handler
+window.addEventListener('resize', () => {
+  if (app) {
+    // ... existing resize code ...
+    
+    // Update color picker position
+    if (colorPickerContainer) {
+      colorPickerContainer.position.set(
+        app.screen.width / 2 - 150,
+        app.screen.height / 2 - 75
+      );
+    }
+    
+    // Update notification position
+    if (notificationText) {
+      notificationText.position.set(app.screen.width / 2, 120);
+    }
+    
+    // Update player list position - keep it in the top left
+    if (playerListContainer) {
+      playerListContainer.position.set(20, 100);
+    }
+    
+    // Update player list toggle button position
+    if (playerListToggleButton && playerListToggleText) {
+      playerListToggleButton.position.set(20, 70);
+      playerListToggleText.position.set(playerListToggleButton.x + 15, playerListToggleButton.y + 15);
+    }
+    
+    // Update debug button position
+    if (debugButton && debugButtonText) {
+      debugButton.position.set(60, 70);
+      debugButtonText.position.set(debugButton.x + 15, debugButton.y + 15);
+    }
+  }
+});
+
+// Modify showNotification function to be more visible
+function showNotification(message: string, duration: number = 5000): void {
+  console.log("NOTIFICATION: " + message); // Log notification for debugging
+  
+  // Clear any existing notification timeout
+  if (notificationTimeout !== null) {
+    clearTimeout(notificationTimeout);
+  }
+  
+  // Show the notification
+  notificationText.text = message;
+  notificationText.alpha = 1;
+  
+  // Fade out after duration
+  notificationTimeout = window.setTimeout(() => {
+    // Fade out animation
+    const fadeOut = () => {
+      notificationText.alpha -= 0.02; // Slower fade
+      if (notificationText.alpha > 0) {
+        requestAnimationFrame(fadeOut);
+      }
+    };
+    fadeOut();
+  }, duration);
+}
+
+// Export getPlayerId for use in other modules
+export { showNotification };
+
+// Add togglePlayerList function
+function togglePlayerList(): void {
+  playerListVisible = !playerListVisible;
+  playerListContainer.visible = playerListVisible;
+}
+
+// Update updatePlayerList function to make it more compact
+function updatePlayerList(): void {
+  const ships = networkManager.getAllShips();
+  let listText = 'Players Online: ' + ships.length + '\n';
+  
+  ships.forEach(ship => {
+    const isLocal = ship.id === networkManager.getPlayerId();
+    // Truncate long names
+    const displayName = ship.playerName.length > 12 ? 
+      ship.playerName.substring(0, 10) + '...' : 
+      ship.playerName;
+    listText += `• ${displayName}${isLocal ? ' (You)' : ''}\n`;
+  });
+  
+  playerListText.text = listText;
+  
+  // Resize background to fit text but keep it compact
+  const padding = 20;
+  const minWidth = 150;
+  const width = Math.max(minWidth, playerListText.width + padding);
+  playerListBackground.clear();
+  playerListBackground.beginFill(0x000000, 0.6);
+  playerListBackground.drawRect(0, 0, width, playerListText.height + padding);
+  playerListBackground.endFill();
 } 

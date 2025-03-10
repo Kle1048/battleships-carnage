@@ -101,6 +101,7 @@ interface ShipProps {
   hull: number;
   type: ShipType;
   playerId?: string; // Optional player ID for color assignment
+  playerName: string;
 }
 
 // Collision data for different ship types
@@ -110,8 +111,8 @@ const SHIP_COLLISION_DATA = {
   battleship: { radius: 40, width: 80, height: 25, damage: 2.0 }
 };
 
-// Array of bright, distinct colors that stand out against blue background
-const SHIP_COLORS = [
+// Ship colors array - moved outside class for reuse
+export const SHIP_COLORS = [
   0xFF5733, // Bright orange
   0xFFD700, // Gold
   0x32CD32, // Lime green
@@ -161,7 +162,7 @@ export class Ship {
   public targetSpeed: number = 0;
   
   // PIXI sprite
-  public sprite: PIXI.Graphics;
+  public sprite: PIXI.Container;
   
   // Add weapon cooldown properties
   public primaryWeaponCooldown: number = 0;
@@ -170,19 +171,40 @@ export class Ship {
   // Ship ID (used for network identification)
   public id: string;
   public playerId: string;
+  public playerName: string;
   public color: number;
+  private nameText: PIXI.Text;
   
-  constructor(props: ShipProps) {
-    this.x = props.x;
-    this.y = props.y;
-    this.rotation = props.rotation;
-    this.speed = props.speed;
-    this.maxSpeed = props.maxSpeed;
-    this.acceleration = props.acceleration;
-    this.rotationSpeed = props.rotationSpeed;
-    this.type = props.type;
-    this.hull = props.hull;
-    this.maxHull = props.hull;
+  // Add color picker properties
+  private static userSelectedColor: number | null = null;
+  
+  private nameContainer: PIXI.Container;  // Add this new property
+  
+  constructor(options: {
+    x: number;
+    y: number;
+    rotation: number;
+    speed: number;
+    maxSpeed: number;
+    acceleration: number;
+    rotationSpeed: number;
+    hull: number;
+    type: ShipType;
+    playerId: string;
+    playerName: string;
+  }) {
+    this.x = options.x;
+    this.y = options.y;
+    this.rotation = options.rotation;
+    this.speed = options.speed;
+    this.maxSpeed = options.maxSpeed;
+    this.acceleration = options.acceleration;
+    this.rotationSpeed = options.rotationSpeed;
+    this.hull = options.hull;
+    this.maxHull = options.hull;
+    this.type = options.type;
+    this.playerId = options.playerId;
+    this.playerName = options.playerName;
     
     // Set collision properties based on ship type
     const collisionData = SHIP_COLLISION_DATA[this.type];
@@ -192,26 +214,61 @@ export class Ship {
     this.collisionDamageMultiplier = collisionData.damage;
     
     // Set ship ID (use player ID if provided, otherwise generate a random one)
-    this.playerId = props.playerId || 'local';
     this.id = this.playerId;
     
     // Assign a color based on player ID
     this.color = this.getColorForPlayer(this.id);
     
-    // Create ship sprite
-    this.sprite = this.createShipSprite();
+    // Create container for ship sprite
+    this.sprite = new PIXI.Container();
     
-    // Set initial position and rotation
+    // Create ship sprite
+    const shipSprite = this.createShipSprite();
+    this.sprite.addChild(shipSprite as unknown as PIXI.DisplayObject);
+
+    // Create separate container for name that's independent of ship rotation
+    this.nameContainer = new PIXI.Container();
+    
+    // Create name text
+    this.nameText = new PIXI.Text(this.playerName, {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        fill: 0xFFFFFF,
+        align: 'center',
+        stroke: 0x000000,
+        strokeThickness: 4,
+        lineJoin: 'round'
+    });
+    
+    // Center the name text horizontally
+    this.nameText.anchor.set(0.5, 0);
+    
+    // Add name text to its container
+    this.nameContainer.addChild(this.nameText as unknown as PIXI.DisplayObject);
+    
+    // Position the name container below the ship
+    this.nameContainer.position.set(this.x, this.y + 38); // 38px is about 1cm below the ship
+    
+    // Set initial position
+    this.sprite.position.set(this.x, this.y);
+    this.sprite.rotation = this.rotation;
+    
+    // Update sprite position
     this.updateSpritePosition();
     
-    // Explicitly initialize weapon cooldowns to 0 to ensure weapons can be fired immediately
+    // Explicitly initialize weapon cooldowns to 0
     this.primaryWeaponCooldown = 0;
     this.secondaryWeaponCooldown = 0;
   }
   
-  // Get a color based on player ID
+  // Get a color based on player ID or user selection
   private getColorForPlayer(playerId: string): number {
-    // For local player, always use bright orange
+    // For local player, use selected color if available
+    if (playerId === 'local' && Ship.userSelectedColor !== null) {
+      return Ship.userSelectedColor;
+    }
+    
+    // For local player without selection, use first color
     if (playerId === 'local') {
       return SHIP_COLORS[0];
     }
@@ -227,110 +284,90 @@ export class Ship {
     return SHIP_COLORS[colorIndex];
   }
   
-  createShipSprite(): PIXI.Graphics {
-    // Create a graphics object for the ship
-    const graphics = new PIXI.Graphics();
-    
-    // Set the fill color based on player ID
-    graphics.beginFill(this.color);
-    
-    // Draw the ship shape based on type
-    // Note: We're drawing the ship pointing to the right (0 radians)
-    // The sprite will be rotated to match the ship's rotation
-    switch (this.type) {
-      case 'destroyer':
-        // Small, fast ship - pointing right (0 radians)
-        graphics.drawPolygon([
-          20, 0,   // Front (nose)
-          -10, -7.5, // Left back
-          -5, 0,   // Back middle
-          -10, 7.5   // Right back
-        ]);
-        break;
-      case 'cruiser':
-        // Medium ship - pointing right (0 radians)
-        graphics.drawPolygon([
-          30, 0,   // Front (nose)
-          -15, -10, // Left back
-          -7, 0,   // Back middle
-          -15, 10   // Right back
-        ]);
-        break;
-      case 'battleship':
-        // Large, powerful ship - pointing right (0 radians)
-        graphics.drawPolygon([
-          40, 0,   // Front (nose)
-          -20, -12.5, // Left back
-          -10, 0,   // Back middle
-          -20, 12.5   // Right back
-        ]);
-        break;
+  // Method to update ship color
+  public updateColor(newColor: number): void {
+    this.color = newColor;
+    if (this.playerId === 'local') {
+      Ship.userSelectedColor = newColor;
+      localStorage.setItem('shipColor', newColor.toString());
     }
     
-    graphics.endFill();
-    
-    // Add details to the ship (bridge/tower)
-    graphics.beginFill(0xFFFFFF);
-    
-    switch (this.type) {
-      case 'destroyer':
-        graphics.drawRect(-5, -3, 10, 6);
-        break;
-      case 'cruiser':
-        graphics.drawRect(-7, -5, 14, 10);
-        break;
-      case 'battleship':
-        graphics.drawRect(-10, -7, 20, 14);
-        break;
+    // Update ship appearance
+    const shipGraphics = this.sprite.children[0] as PIXI.Graphics;
+    if (shipGraphics) {
+      shipGraphics.tint = this.color;
     }
-    
-    graphics.endFill();
-    
-    // Add outline
-    graphics.lineStyle(1, 0x000000);
-    
-    switch (this.type) {
-      case 'destroyer':
-        graphics.drawPolygon([
-          20, 0,   // Front (nose)
-          -10, -7.5, // Left back
-          -5, 0,   // Back middle
-          -10, 7.5   // Right back
-        ]);
-        break;
-      case 'cruiser':
-        graphics.drawPolygon([
-          30, 0,   // Front (nose)
-          -15, -10, // Left back
-          -7, 0,   // Back middle
-          -15, 10   // Right back
-        ]);
-        break;
-      case 'battleship':
-        graphics.drawPolygon([
-          40, 0,   // Front (nose)
-          -20, -12.5, // Left back
-          -10, 0,   // Back middle
-          -20, 12.5   // Right back
-        ]);
-        break;
-    }
-    
-    // Draw collision radius (for debugging)
-    // graphics.lineStyle(1, 0xFF0000, 0.3);
-    // graphics.drawCircle(0, 0, this.collisionRadius);
-    
-    return graphics;
   }
   
-  updateSpritePosition(): void {
-    this.sprite.x = this.x;
-    this.sprite.y = this.y;
+  // Static method to initialize color from storage
+  public static initializeColorFromStorage(): void {
+    const storedColor = localStorage.getItem('shipColor');
+    if (storedColor) {
+      Ship.userSelectedColor = parseInt(storedColor);
+    }
+  }
+  
+  createShipSprite(): PIXI.Container {
+    const container = new PIXI.Container();
     
-    // In PixiJS, rotation is clockwise, with 0 pointing to the right
-    // Our ship sprites are drawn pointing to the right (0 radians)
-    // So we can directly use the ship's rotation value
-    this.sprite.rotation = this.rotation;
+    // Create ship graphics
+    const shipGraphics = new PIXI.Graphics();
+    
+    // Draw ship based on type
+    switch (this.type) {
+      case 'destroyer':
+        this.drawDestroyer(shipGraphics);
+        break;
+      case 'cruiser':
+        this.drawCruiser(shipGraphics);
+        break;
+      case 'battleship':
+        this.drawBattleship(shipGraphics);
+        break;
+    }
+    
+    // Add highlight for other players (not local player)
+    if (this.playerId !== 'local' && this.playerId !== networkManagerRef?.getPlayerId()) {
+      const highlight = new PIXI.Graphics();
+      highlight.beginFill(0xFFFFFF, 0.3);
+      highlight.drawCircle(0, 0, this.collisionRadius * 1.5);
+      highlight.endFill();
+      
+      // Add pulsing animation
+      const pulseAnimation = () => {
+        highlight.scale.x = 1 + Math.sin(Date.now() / 300) * 0.2;
+        highlight.scale.y = highlight.scale.x;
+        requestAnimationFrame(pulseAnimation);
+      };
+      pulseAnimation();
+      
+      container.addChild(highlight as unknown as PIXI.DisplayObject);
+    }
+    
+    // Add ship graphics to container
+    container.addChild(shipGraphics as unknown as PIXI.DisplayObject);
+    
+    return container;
+  }
+  
+  /**
+   * Update the sprite position and rotation to match the ship
+   */
+  updateSpritePosition(): void {
+    try {
+      // Update ship sprite position and rotation
+      if (this.sprite) {
+        this.sprite.position.set(this.x, this.y);
+        this.sprite.rotation = this.rotation;
+      }
+      
+      // Update name container position (but not rotation, to keep it horizontal)
+      if (this.nameContainer) {
+        this.nameContainer.position.set(this.x, this.y + 38); // 38px is about 1cm below the ship
+      }
+    } catch (error) {
+      console.error('Error updating sprite position:', error);
+    }
   }
   
   // Set throttle to a specific setting
@@ -599,19 +636,59 @@ export class Ship {
   }
   
   /**
-   * Create visual effect for collision
+   * Update the ship's appearance based on damage
+   */
+  updateDamageAppearance(): void {
+    try {
+      // Get the ship graphics from the container (second child)
+      const shipGraphics = this.sprite.children[this.sprite.children.length - 1] as unknown as PIXI.Graphics;
+      if (!shipGraphics) {
+        console.error('Ship graphics not found in container');
+        return;
+      }
+      
+      // Calculate damage percentage
+      const damagePercent = 1 - (this.hull / this.maxHull);
+      
+      // Apply visual effects based on damage
+      if (damagePercent > 0.7) {
+        // Heavily damaged - red tint
+        shipGraphics.tint = 0xFF0000;
+      } else if (damagePercent > 0.3) {
+        // Moderately damaged - orange tint
+        shipGraphics.tint = 0xFF8800;
+      } else {
+        // Lightly damaged or undamaged - no tint
+        shipGraphics.tint = 0xFFFFFF;
+      }
+    } catch (error) {
+      console.error('Error in updateDamageAppearance:', error);
+    }
+  }
+  
+  /**
+   * Create a visual effect for collision
    */
   createCollisionEffect(): void {
-    // In a real implementation, we would create particle effects
-    // For now, just flash the ship sprite
-    const originalTint = this.sprite.tint;
-    this.sprite.tint = 0xFFFFFF; // Flash white
-    
-    // Reset tint after a short delay
-    setTimeout(() => {
-      this.sprite.tint = originalTint;
-      this.isColliding = false;
-    }, 100);
+    try {
+      // Get the ship graphics from the container (second child)
+      const shipGraphics = this.sprite.children[this.sprite.children.length - 1] as unknown as PIXI.Graphics;
+      if (!shipGraphics) {
+        console.error('Ship graphics not found in container');
+        return;
+      }
+      
+      // Flash the ship red
+      const originalTint = shipGraphics.tint;
+      shipGraphics.tint = 0xFF0000;
+      
+      // Reset after a short delay
+      setTimeout(() => {
+        shipGraphics.tint = originalTint;
+      }, 200);
+    } catch (error) {
+      console.error('Error in createCollisionEffect:', error);
+    }
   }
   
   /**
@@ -632,59 +709,31 @@ export class Ship {
   }
   
   /**
-   * Update ship appearance based on current damage
-   */
-  updateDamageAppearance(): void {
-    // Calculate damage percentage
-    const damagePercent = 1 - (this.hull / this.maxHull);
-    
-    // Apply visual effects based on damage level
-    if (damagePercent > 0.7) {
-      // Heavily damaged - add red tint
-      this.sprite.tint = this.blendColors(this.color, 0xFF0000, 0.5);
-    } else if (damagePercent > 0.3) {
-      // Moderately damaged - slight red tint
-      this.sprite.tint = this.blendColors(this.color, 0xFF0000, 0.2);
-    } else {
-      // Minimal damage - normal color
-      this.sprite.tint = this.color;
-    }
-  }
-  
-  /**
-   * Blend two colors together
-   * @param color1 First color
-   * @param color2 Second color
-   * @param ratio Blend ratio (0-1)
-   * @returns Blended color
-   */
-  private blendColors(color1: number, color2: number, ratio: number): number {
-    const r1 = (color1 >> 16) & 0xFF;
-    const g1 = (color1 >> 8) & 0xFF;
-    const b1 = color1 & 0xFF;
-    
-    const r2 = (color2 >> 16) & 0xFF;
-    const g2 = (color2 >> 8) & 0xFF;
-    const b2 = color2 & 0xFF;
-    
-    const r = Math.floor(r1 * (1 - ratio) + r2 * ratio);
-    const g = Math.floor(g1 * (1 - ratio) + g2 * ratio);
-    const b = Math.floor(b1 * (1 - ratio) + b2 * ratio);
-    
-    return (r << 16) | (g << 8) | b;
-  }
-  
-  /**
    * Destroy the ship
    */
   destroy(): void {
-    console.log(`Ship ${this.id} was destroyed!`);
-    
-    // Create explosion effect
-    this.createExplosionEffect();
-    
-    // Hide the ship
-    this.sprite.visible = false;
+    try {
+      console.log(`Ship ${this.id} was destroyed!`);
+      
+      // Create explosion effect
+      this.createExplosionEffect();
+      
+      // Hide the ship
+      this.sprite.visible = false;
+      
+      // Clean up name container
+      if (this.nameContainer) {
+        if (this.nameText) {
+          this.nameContainer.removeChild(this.nameText as unknown as PIXI.DisplayObject);
+          this.nameText.destroy();
+        }
+        this.nameContainer.destroy();
+      }
+      
+      this.sprite.destroy();
+    } catch (error) {
+      console.error('Error destroying ship:', error);
+    }
   }
   
   /**
@@ -806,5 +855,101 @@ export class Ship {
   resetSpawnProtection(): void {
     this.spawnTime = Date.now();
     console.log(`Spawn protection activated for ${this.id} until ${new Date(this.spawnTime + this.spawnProtectionTime).toLocaleTimeString()}`);
+  }
+  
+  /**
+   * Draw destroyer ship type
+   */
+  private drawDestroyer(graphics: PIXI.Graphics): void {
+    // Set the fill color based on player ID
+    graphics.beginFill(this.color);
+    
+    // Small, fast ship - pointing right (0 radians)
+    graphics.drawPolygon([
+      20, 0,   // Front (nose)
+      -10, -7.5, // Left back
+      -5, 0,   // Back middle
+      -10, 7.5   // Right back
+    ]);
+    
+    graphics.endFill();
+    
+    // Add details to the ship (bridge/tower)
+    graphics.beginFill(0xFFFFFF);
+    graphics.drawRect(-5, -3, 10, 6);
+    graphics.endFill();
+    
+    // Add outline
+    graphics.lineStyle(1, 0x000000);
+    graphics.drawPolygon([
+      20, 0,   // Front (nose)
+      -10, -7.5, // Left back
+      -5, 0,   // Back middle
+      -10, 7.5   // Right back
+    ]);
+  }
+  
+  /**
+   * Draw cruiser ship type
+   */
+  private drawCruiser(graphics: PIXI.Graphics): void {
+    // Set the fill color based on player ID
+    graphics.beginFill(this.color);
+    
+    // Medium ship - pointing right (0 radians)
+    graphics.drawPolygon([
+      30, 0,   // Front (nose)
+      -15, -10, // Left back
+      -7, 0,   // Back middle
+      -15, 10   // Right back
+    ]);
+    
+    graphics.endFill();
+    
+    // Add details to the ship (bridge/tower)
+    graphics.beginFill(0xFFFFFF);
+    graphics.drawRect(-7, -5, 14, 10);
+    graphics.endFill();
+    
+    // Add outline
+    graphics.lineStyle(1, 0x000000);
+    graphics.drawPolygon([
+      30, 0,   // Front (nose)
+      -15, -10, // Left back
+      -7, 0,   // Back middle
+      -15, 10   // Right back
+    ]);
+  }
+  
+  /**
+   * Draw battleship ship type
+   */
+  private drawBattleship(graphics: PIXI.Graphics): void {
+    // Set the fill color based on player ID
+    graphics.beginFill(this.color);
+    
+    // Large, powerful ship - pointing right (0 radians)
+    graphics.drawPolygon([
+      40, 0,   // Front (nose)
+      -20, -12.5, // Left back
+      -10, 0,   // Back middle
+      -20, 12.5   // Right back
+    ]);
+    
+    graphics.endFill();
+    
+    // Add details to the ship (bridge/tower)
+    graphics.beginFill(0xFFFFFF);
+    graphics.drawRect(-10, -7, 20, 14);
+    graphics.endFill();
+    
+    // Add outline
+    graphics.lineStyle(1, 0x000000);
+    graphics.drawPolygon([
+      40, 0,   // Front (nose)
+      -20, -12.5, // Left back
+      -10, 0,   // Back middle
+      -20, 12.5   // Right back
+    ]);
   }
 } 

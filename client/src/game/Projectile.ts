@@ -77,68 +77,109 @@ export class Projectile {
   }
   
   private createProjectileSprite(): PIXI.Graphics {
-    const properties = PROJECTILE_PROPERTIES[this.type];
-    const sprite = new PIXI.Graphics();
-    
-    // Draw different projectile types
-    if (this.type === ProjectileType.CANNON_BALL) {
-      // Draw a circle for cannon ball
-      sprite.beginFill(properties.color);
-      sprite.drawCircle(0, 0, this.radius);
-      sprite.endFill();
-    } else if (this.type === ProjectileType.TORPEDO) {
-      // Draw an elongated shape for torpedo
-      sprite.beginFill(properties.color);
-      sprite.drawEllipse(0, 0, this.radius * 2, this.radius);
-      sprite.endFill();
+    try {
+      const properties = PROJECTILE_PROPERTIES[this.type];
+      const sprite = new PIXI.Graphics();
       
-      // Add a small trail
-      sprite.beginFill(0xaaaaaa, 0.7);
-      sprite.drawCircle(-this.radius * 1.5, 0, this.radius / 2);
-      sprite.endFill();
+      // Draw different projectile types
+      if (this.type === ProjectileType.CANNON_BALL) {
+        // Draw a circle for cannon ball
+        sprite.beginFill(properties.color);
+        sprite.drawCircle(0, 0, this.radius);
+        sprite.endFill();
+      } else if (this.type === ProjectileType.TORPEDO) {
+        // Draw an elongated shape for torpedo
+        sprite.beginFill(properties.color);
+        sprite.drawEllipse(0, 0, this.radius * 2, this.radius);
+        sprite.endFill();
+        
+        // Add a small trail
+        sprite.beginFill(0xaaaaaa, 0.7);
+        sprite.drawCircle(-this.radius * 1.5, 0, this.radius / 2);
+        sprite.endFill();
+      }
+      
+      sprite.x = this.x;
+      sprite.y = this.y;
+      sprite.rotation = this.rotation;
+      
+      return sprite;
+    } catch (error) {
+      console.error('Error creating projectile sprite:', error);
+      // Return a simple fallback sprite
+      const fallbackSprite = new PIXI.Graphics();
+      fallbackSprite.beginFill(0xFF0000);
+      fallbackSprite.drawCircle(0, 0, this.radius || 5);
+      fallbackSprite.endFill();
+      fallbackSprite.x = this.x;
+      fallbackSprite.y = this.y;
+      return fallbackSprite;
     }
-    
-    sprite.x = this.x;
-    sprite.y = this.y;
-    sprite.rotation = this.rotation;
-    
-    return sprite;
   }
   
   public update(): boolean {
-    // Update lifetime
-    this.currentLifetime++;
-    if (this.currentLifetime >= this.lifetime) {
-      return false; // Projectile should be removed
+    try {
+      // Update lifetime
+      this.currentLifetime++;
+      if (this.currentLifetime >= this.lifetime) {
+        return false; // Projectile should be removed
+      }
+      
+      // Update position based on velocity
+      // In PixiJS, 0 radians points to the right, and rotation is clockwise
+      // So we use cos for x and sin for y to move in the direction of rotation
+      const vx = Math.cos(this.rotation) * this.speed;
+      const vy = Math.sin(this.rotation) * this.speed;
+      
+      // Log movement for debugging (only for first few frames)
+      if (this.currentLifetime <= 3) {
+        console.log(`Projectile ${this.id} movement:`, {
+          position: { x: this.x, y: this.y },
+          velocity: { vx, vy },
+          rotation: this.rotation * (180 / Math.PI) + '°',
+          speed: this.speed,
+          lifetime: this.currentLifetime
+        });
+      }
+      
+      this.x += vx;
+      this.y += vy;
+      
+      // Calculate distance traveled
+      const dx = this.x - this.startX;
+      const dy = this.y - this.startY;
+      this.distanceTraveled = Math.sqrt(dx * dx + dy * dy);
+      
+      // Check if projectile has exceeded maximum range
+      if (this.distanceTraveled >= this.maxRange) {
+        return false; // Projectile should be removed
+      }
+      
+      // Update sprite position
+      if (this.sprite) {
+        this.sprite.x = this.x;
+        this.sprite.y = this.y;
+        
+        // For torpedo projectiles, rotate the sprite to match movement direction
+        if (this.type === ProjectileType.TORPEDO) {
+          this.sprite.rotation = this.rotation;
+        }
+      } else {
+        console.warn('Projectile sprite is null or undefined');
+        return false; // Remove projectile if sprite is missing
+      }
+      
+      // Add some visual effects based on projectile type
+      if (this.type === ProjectileType.TORPEDO && this.currentLifetime % 5 === 0) {
+        // Add bubbles or wake effect for torpedoes
+        // This would be expanded in a more complete implementation
+      }
+      
+      return true; // Projectile is still active
+    } catch (error) {
+      console.error('Error updating projectile:', error);
+      return false; // Remove projectile on error
     }
-    
-    // Update position based on velocity
-    const vx = Math.cos(this.rotation) * this.speed;
-    const vy = Math.sin(this.rotation) * this.speed;
-    this.x += vx;
-    this.y += vy;
-    
-    // Calculate distance traveled
-    const dx = this.x - this.startX;
-    const dy = this.y - this.startY;
-    this.distanceTraveled = Math.sqrt(dx * dx + dy * dy);
-    
-    // Check if projectile has exceeded maximum range
-    if (this.distanceTraveled >= this.maxRange) {
-      return false; // Projectile should be removed
-    }
-    
-    // Update sprite position
-    this.sprite.x = this.x;
-    this.sprite.y = this.y;
-    
-    // Add some visual effects based on projectile type
-    if (this.type === ProjectileType.TORPEDO && this.currentLifetime % 5 === 0) {
-      // Add bubbles or wake effect for torpedoes
-      // This would be expanded in a more complete implementation
-    }
-    
-    return true; // Projectile is still active
   }
   
   public checkCollision(ship: Ship): boolean {
@@ -152,7 +193,20 @@ export class Projectile {
     const dy = this.y - ship.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     
-    return distance < (this.radius + ship.collisionRadius);
+    // Use a slightly larger collision radius for better hit detection
+    const projectileRadius = this.radius * 1.2;
+    const shipRadius = ship.collisionRadius * 1.2;
+    const hasCollided = distance < (projectileRadius + shipRadius);
+    
+    // Log collision checks for debugging
+    if (hasCollided) {
+      console.log(`Projectile collision detected with ${ship.playerName}!`);
+      console.log(`- Projectile position: (${Math.round(this.x)}, ${Math.round(this.y)})`);
+      console.log(`- Ship position: (${Math.round(ship.x)}, ${Math.round(ship.y)})`);
+      console.log(`- Distance: ${Math.round(distance)}, Combined radius: ${Math.round(projectileRadius + shipRadius)}`);
+    }
+    
+    return hasCollided;
   }
   
   public applyDamage(ship: Ship): void {
@@ -163,7 +217,7 @@ export class Projectile {
     this.createHitEffect();
   }
   
-  private createHitEffect(): void {
+  public createHitEffect(): void {
     // This would create visual effects when a projectile hits a ship
     // For now, this is a placeholder for future implementation
   }
