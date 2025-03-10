@@ -13,6 +13,7 @@ interface Player {
   rotation: number;
   type: ShipType;
   hull: number;
+  deviceId?: string;
 }
 
 interface ProjectileData {
@@ -34,6 +35,9 @@ interface GameState {
 // This allows us to configure it for local network play
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:3001';
 
+// Local storage key for device ID
+const DEVICE_ID_KEY = 'battleships_device_id';
+
 export class NetworkManager {
   private socket: Socket | null = null;
   private players: Map<string, Ship> = new Map();
@@ -46,38 +50,62 @@ export class NetworkManager {
   private serverUrl: string;
   private projectiles: Map<string, Projectile> = new Map();
   private onProjectileCreated: ((projectile: Projectile) => void) | null = null;
+  private deviceId: string | null = null;
+  private heartbeatInterval: number | null = null;
 
   constructor(gameContainer: PIXI.Container, serverUrl: string = SERVER_URL) {
     this.gameContainer = gameContainer;
     this.serverUrl = serverUrl;
     
-    console.log(`Connecting to server at: ${this.serverUrl}`);
+    // Try to get device ID from local storage
+    this.deviceId = localStorage.getItem(DEVICE_ID_KEY);
+    console.log('Device ID from storage:', this.deviceId);
     
     // Connect to the server
     this.connectToServer();
   }
 
   private connectToServer(): void {
-    console.log('Connecting to server...');
+    console.log('Connecting to server:', this.serverUrl);
     this.connectionStatus = 'connecting';
     
     try {
-      console.log(`Attempting to connect to: ${this.serverUrl}`);
-      
-      // Connect to the server with error handling
+      // Connect to the server
       this.socket = io(this.serverUrl, {
+        reconnection: true,
         reconnectionAttempts: this.maxReconnectAttempts,
-        timeout: 10000,
-        transports: ['websocket', 'polling'],
-        forceNew: true
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        timeout: 10000
       });
       
       // Set up event listeners
       this.setupEventListeners();
+      
+      // Start heartbeat to keep connection alive
+      this.startHeartbeat();
     } catch (error) {
-      console.error('Failed to initialize socket connection:', error);
+      console.error('Error connecting to server:', error);
       this.connectionStatus = 'disconnected';
     }
+  }
+  
+  /**
+   * Start sending heartbeat messages to the server
+   */
+  private startHeartbeat(): void {
+    // Clear any existing heartbeat interval
+    if (this.heartbeatInterval !== null) {
+      window.clearInterval(this.heartbeatInterval);
+    }
+    
+    // Send heartbeat every 30 seconds
+    this.heartbeatInterval = window.setInterval(() => {
+      if (this.socket && this.connectionStatus === 'connected') {
+        this.socket.emit('heartbeat');
+        console.log('Heartbeat sent');
+      }
+    }, 30000);
   }
 
   private setupEventListeners(): void {
@@ -88,6 +116,9 @@ export class NetworkManager {
       console.log('Connected to server!');
       this.connectionStatus = 'connected';
       this.reconnectAttempts = 0;
+      
+      // Identify this device to the server
+      this.identifyDevice();
     });
     
     this.socket.on('connect_error', (error) => {
@@ -127,12 +158,72 @@ export class NetworkManager {
       }
     });
     
+    // Handle forced disconnection (when another instance connects with the same device ID)
+    this.socket.on('forceDisconnect', (data) => {
+      console.warn('Forced disconnect:', data.reason);
+      alert('Another game session was opened on this device. This session will be disconnected.');
+      
+      // Disconnect from the server
+      this.socket?.disconnect();
+      this.connectionStatus = 'disconnected';
+      
+      // Clear the game state
+      this.players.forEach((ship, id) => {
+        ship.destroy();
+        if (ship.sprite.parent) {
+          ship.sprite.parent.removeChild(ship.sprite as any);
+        }
+      });
+      this.players.clear();
+      this.localPlayer = null;
+    });
+    
+    // Handle device ID assignment
+    this.socket.on('deviceIdAssigned', (data) => {
+      console.log('Device ID assigned:', data.deviceId);
+      this.deviceId = data.deviceId;
+      
+      // Store the device ID in local storage
+      localStorage.setItem(DEVICE_ID_KEY, data.deviceId);
+    });
+    
     // Game state events
     this.socket.on('gameState', (state: GameState) => {
       console.log('Received game state:', state);
       this.playerId = state.self;
       
-      // Create ships for all players
+      // Get the player's initial position from the server
+      const playerData = state.players[this.playerId];
+      if (playerData && this.localPlayer) {
+        console.log('Setting initial player position:', playerData);
+        
+        // Update local player position and rotation
+        this.localPlayer.x = playerData.x;
+        this.localPlayer.y = playerData.y;
+        this.localPlayer.rotation = playerData.rotation;
+        
+        // Update ship type if needed
+        if (this.localPlayer.type !== playerData.type) {
+          this.localPlayer.type = playerData.type as ShipType;
+          
+          // Recreate sprite with new ship type
+          if (this.localPlayer.sprite.parent) {
+            this.localPlayer.sprite.parent.removeChild(this.localPlayer.sprite as any);
+          }
+          this.localPlayer.sprite = this.localPlayer.createShipSprite();
+          this.gameContainer.addChild(this.localPlayer.sprite as any);
+        }
+        
+        // Update sprite position
+        this.localPlayer.updateSpritePosition();
+        
+        // Reset spawn protection for initial spawn
+        if (typeof this.localPlayer.resetSpawnProtection === 'function') {
+          this.localPlayer.resetSpawnProtection();
+        }
+      }
+      
+      // Create ships for all other players
       Object.values(state.players).forEach(player => {
         if (player.id !== this.playerId) {
           this.addPlayer(player);
@@ -157,27 +248,28 @@ export class NetworkManager {
     });
     
     // Handle player leaving
-    this.socket.on('playerLeft', (id: string) => {
-      console.log('Player left:', id);
-      const ship = this.players.get(id);
+    this.socket.on('playerLeft', (playerId: string) => {
+      console.log('Player left:', playerId);
+      
+      const ship = this.players.get(playerId);
       if (ship) {
-        ship.destroy();
+        // Remove ship sprite from the game
         if (ship.sprite.parent) {
           ship.sprite.parent.removeChild(ship.sprite as any);
         }
-        this.players.delete(id);
+        
+        // Remove ship from the players map
+        this.players.delete(playerId);
       }
     });
     
     // Handle ship damage
     this.socket.on('shipDamaged', (data: { id: string, hull: number }) => {
       console.log('Ship damaged:', data);
+      
       const ship = this.players.get(data.id);
       if (ship) {
-        // Update hull value
         ship.hull = data.hull;
-        
-        // Update ship appearance
         ship.updateDamageAppearance();
       }
     });
@@ -185,9 +277,10 @@ export class NetworkManager {
     // Handle ship destruction
     this.socket.on('shipDestroyed', (data: { id: string }) => {
       console.log('Ship destroyed:', data);
+      
       const ship = this.players.get(data.id);
       if (ship) {
-        // Destroy the ship
+        ship.hull = 0;
         ship.destroy();
       }
     });
@@ -195,6 +288,7 @@ export class NetworkManager {
     // Handle ship respawn
     this.socket.on('shipRespawned', (player: Player) => {
       console.log('Ship respawned:', player);
+      
       const ship = this.players.get(player.id);
       if (ship) {
         // Update ship properties
@@ -238,6 +332,11 @@ export class NetworkManager {
         // Reset appearance
         this.localPlayer.updateDamageAppearance();
         this.localPlayer.updateSpritePosition();
+        
+        // Reset spawn protection
+        if (typeof this.localPlayer.resetSpawnProtection === 'function') {
+          this.localPlayer.resetSpawnProtection();
+        }
       }
     });
     
@@ -246,6 +345,19 @@ export class NetworkManager {
       console.log('Projectile fired by another player:', projectileData);
       this.handleProjectileFromServer(projectileData);
     });
+  }
+  
+  /**
+   * Identify this device to the server
+   */
+  private identifyDevice(): void {
+    if (!this.socket || this.connectionStatus !== 'connected') {
+      console.warn('Cannot identify device: not connected to server');
+      return;
+    }
+    
+    console.log('Identifying device with ID:', this.deviceId);
+    this.socket.emit('identifyDevice', { deviceId: this.deviceId });
   }
 
   private addPlayer(player: Player): void {
@@ -275,6 +387,11 @@ export class NetworkManager {
     
     // Add the ship to the players map
     this.players.set(player.id, ship);
+    
+    // Reset spawn protection for the new ship
+    if (typeof ship.resetSpawnProtection === 'function') {
+      ship.resetSpawnProtection();
+    }
   }
 
   public setLocalPlayer(ship: Ship): void {
@@ -305,6 +422,12 @@ export class NetworkManager {
   }
 
   public cleanup(): void {
+    // Stop heartbeat
+    if (this.heartbeatInterval !== null) {
+      window.clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    
     // Disconnect from the server
     if (this.socket) {
       this.socket.disconnect();

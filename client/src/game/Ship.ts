@@ -152,6 +152,8 @@ export class Ship {
   public isColliding: boolean = false;
   public lastCollisionTime: number = 0;
   public collisionCooldown: number = 500; // ms
+  public spawnProtectionTime: number = 3000; // 3 seconds of spawn protection
+  public spawnTime: number = Date.now();
   
   // Ship controls
   public throttle: ThrottleSetting = ThrottleSetting.STOP;
@@ -201,6 +203,10 @@ export class Ship {
     
     // Set initial position and rotation
     this.updateSpritePosition();
+    
+    // Explicitly initialize weapon cooldowns to 0 to ensure weapons can be fired immediately
+    this.primaryWeaponCooldown = 0;
+    this.secondaryWeaponCooldown = 0;
   }
   
   // Get a color based on player ID
@@ -482,6 +488,18 @@ export class Ship {
       return false;
     }
     
+    // Check for spawn protection
+    const now = Date.now();
+    if (now - this.spawnTime < this.spawnProtectionTime) {
+      // Ship is in spawn protection period
+      return false;
+    }
+    
+    // Check if other ship has spawn protection
+    if (now - otherShip.spawnTime < otherShip.spawnProtectionTime) {
+      return false;
+    }
+    
     // Simple circle collision detection
     const dx = this.x - otherShip.x;
     const dy = this.y - otherShip.y;
@@ -680,12 +698,17 @@ export class Ship {
   
   // Add firing methods
   public firePrimaryWeapon(): boolean {
+    console.log(`Attempting to fire primary weapon. Cooldown: ${this.primaryWeaponCooldown}`);
+    
     if (this.primaryWeaponCooldown > 0) {
+      console.log('Primary weapon on cooldown, cannot fire');
       return false; // Weapon on cooldown
     }
     
     const weaponProps = WEAPON_PROPERTIES[this.type][WeaponType.PRIMARY];
     this.primaryWeaponCooldown = weaponProps.cooldown;
+    
+    console.log(`Primary weapon fired. New cooldown: ${this.primaryWeaponCooldown}`);
     
     // Return true to indicate weapon was fired
     // The actual projectile creation will be handled by the Game class
@@ -693,12 +716,17 @@ export class Ship {
   }
   
   public fireSecondaryWeapon(): boolean {
+    console.log(`Attempting to fire secondary weapon. Cooldown: ${this.secondaryWeaponCooldown}`);
+    
     if (this.secondaryWeaponCooldown > 0) {
+      console.log('Secondary weapon on cooldown, cannot fire');
       return false; // Weapon on cooldown
     }
     
     const weaponProps = WEAPON_PROPERTIES[this.type][WeaponType.SECONDARY];
     this.secondaryWeaponCooldown = weaponProps.cooldown;
+    
+    console.log(`Secondary weapon fired. New cooldown: ${this.secondaryWeaponCooldown}`);
     
     // Return true to indicate weapon was fired
     // The actual projectile creation will be handled by the Game class
@@ -721,27 +749,62 @@ export class Ship {
     
     // For primary weapons (cannons), offset to the sides
     if (weaponType === WeaponType.PRIMARY) {
-      // Position cannons on the sides of the ship
-      // For simplicity, we'll just place them at the ship's position
-      // This makes aiming more predictable
+      // For multi-cannon ships, calculate offset based on index
+      if (weaponProps.count > 1) {
+        // Calculate lateral offset perpendicular to ship direction
+        const lateralOffset = (index - (weaponProps.count - 1) / 2) * (shipWidth * 0.4);
+        
+        // Calculate offset perpendicular to ship direction
+        const perpAngle = this.rotation + Math.PI/2;
+        offsetX = Math.cos(perpAngle) * lateralOffset;
+        offsetY = Math.sin(perpAngle) * lateralOffset;
+        
+        // Also add a small forward offset
+        offsetX += Math.cos(this.rotation) * (shipWidth * 0.2);
+        offsetY += Math.sin(this.rotation) * (shipWidth * 0.2);
+      } else {
+        // Single cannon - place slightly forward of ship center
+        offsetX = Math.cos(this.rotation) * (shipWidth * 0.2);
+        offsetY = Math.sin(this.rotation) * (shipWidth * 0.2);
+      }
+      
+      console.log(`Primary weapon spawn position: Ship at (${this.x}, ${this.y}), offset (${offsetX}, ${offsetY})`);
       
       return {
-        x: this.x,
-        y: this.y,
-        rotation: 0 // The rotation will be set by the firing function based on mouse position
+        x: this.x + offsetX,
+        y: this.y + offsetY,
+        rotation: this.rotation // Use ship's rotation as initial direction
       };
     } 
     // For secondary weapons (torpedoes), offset to the front
     else {
       // Position torpedoes at the front of the ship
-      offsetX = Math.cos(this.rotation) * (shipWidth/2);
-      offsetY = Math.sin(this.rotation) * (shipWidth/2);
+      offsetX = Math.cos(this.rotation) * (shipWidth * 0.5);
+      offsetY = Math.sin(this.rotation) * (shipWidth * 0.5);
+      
+      // For multiple torpedoes, add slight lateral offset
+      if (weaponProps.count > 1) {
+        const lateralOffset = (index - (weaponProps.count - 1) / 2) * (shipWidth * 0.2);
+        const perpAngle = this.rotation + Math.PI/2;
+        offsetX += Math.cos(perpAngle) * lateralOffset;
+        offsetY += Math.sin(perpAngle) * lateralOffset;
+      }
+      
+      console.log(`Secondary weapon spawn position: Ship at (${this.x}, ${this.y}), offset (${offsetX}, ${offsetY})`);
       
       return {
         x: this.x + offsetX,
         y: this.y + offsetY,
-        rotation: 0 // The rotation will be set by the firing function based on mouse position
+        rotation: this.rotation // Use ship's rotation as initial direction
       };
     }
+  }
+  
+  /**
+   * Reset spawn protection timer (call this when ship respawns)
+   */
+  resetSpawnProtection(): void {
+    this.spawnTime = Date.now();
+    console.log(`Spawn protection activated for ${this.id} until ${new Date(this.spawnTime + this.spawnProtectionTime).toLocaleTimeString()}`);
   }
 } 

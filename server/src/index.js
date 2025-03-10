@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
+const { Server } = require('socket.io');
+const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -28,7 +29,7 @@ app.use((req, res, next) => {
 const server = http.createServer(app);
 
 // Initialize Socket.IO
-const io = socketIo(server, {
+const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
@@ -53,42 +54,142 @@ if (!fs.existsSync(faviconPath)) {
   fs.writeFileSync(faviconPath, buffer);
 }
 
-// Game state
+// Store player data
 const players = {};
-const ships = {};
+
+// Store projectiles
 const projectiles = {};
 
-// Socket.IO connection handler
+// Track device connections
+const deviceConnections = {};
+
+// Inactive player timeout (5 minutes)
+const INACTIVE_TIMEOUT = 5 * 60 * 1000;
+
+// Generate a unique device ID
+function generateDeviceId() {
+  return uuidv4();
+}
+
+// Get a random ship type
+function getRandomShipType() {
+  const types = ['destroyer', 'cruiser', 'battleship'];
+  return types[Math.floor(Math.random() * types.length)];
+}
+
+// Clean up inactive players periodically
+setInterval(() => {
+  const now = Date.now();
+  let cleanupCount = 0;
+  
+  Object.keys(players).forEach(playerId => {
+    const player = players[playerId];
+    
+    // Check if player has been inactive for too long
+    if (player.lastActivity && now - player.lastActivity > INACTIVE_TIMEOUT) {
+      console.log(`Cleaning up inactive player ${playerId} (inactive for ${Math.floor((now - player.lastActivity) / 1000)} seconds)`);
+      
+      // Remove player from the game
+      delete players[playerId];
+      
+      // Remove device connection if it exists
+      if (player.deviceId && deviceConnections[player.deviceId] === playerId) {
+        delete deviceConnections[player.deviceId];
+      }
+      
+      // Notify other players
+      io.emit('playerLeft', playerId);
+      
+      cleanupCount++;
+    }
+  });
+  
+  if (cleanupCount > 0) {
+    console.log(`Cleaned up ${cleanupCount} inactive players`);
+  }
+}, 60000); // Check every minute
+
+// Handle socket connections
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
   
-  // Add player to the game
-  players[socket.id] = {
-    id: socket.id,
-    x: Math.random() * 2500, // Random position across the map
-    y: Math.random() * 2500, // Random position across the map
-    rotation: Math.random() * Math.PI * 2, // Random initial rotation
-    type: getRandomShipType(),
-    hull: 100
-  };
-  
-  // Send current game state to the new player
-  socket.emit('gameState', {
-    players: players,
-    self: socket.id
+  // Handle device identification
+  socket.on('identifyDevice', (data) => {
+    let deviceId = data.deviceId;
+    
+    // If no device ID provided, generate a new one
+    if (!deviceId) {
+      deviceId = generateDeviceId();
+      console.log(`Generated new device ID for player ${socket.id}: ${deviceId}`);
+      
+      // Send the new device ID to the client
+      socket.emit('deviceIdAssigned', { deviceId });
+    } else {
+      console.log(`Player ${socket.id} identified with device ID: ${deviceId}`);
+    }
+    
+    // Check if this device is already connected
+    if (deviceConnections[deviceId] && deviceConnections[deviceId] !== socket.id) {
+      const existingPlayerId = deviceConnections[deviceId];
+      const existingSocket = io.sockets.sockets.get(existingPlayerId);
+      
+      if (existingSocket) {
+        console.log(`Device ${deviceId} already connected as player ${existingPlayerId}. Disconnecting old session.`);
+        
+        // Notify the existing socket that it's being disconnected
+        existingSocket.emit('forceDisconnect', { 
+          reason: 'Another session was opened on this device' 
+        });
+        
+        // Disconnect the existing socket
+        existingSocket.disconnect(true);
+        
+        // Remove the player from the game
+        if (players[existingPlayerId]) {
+          delete players[existingPlayerId];
+          
+          // Notify other players
+          socket.broadcast.emit('playerLeft', existingPlayerId);
+        }
+      }
+    }
+    
+    // Register this device connection
+    deviceConnections[deviceId] = socket.id;
+    
+    // Create a new player
+    players[socket.id] = {
+      id: socket.id,
+      x: Math.random() * 2500,
+      y: Math.random() * 2500,
+      rotation: Math.random() * Math.PI * 2,
+      type: getRandomShipType(),
+      hull: 100,
+      deviceId: deviceId,
+      lastActivity: Date.now()
+    };
+    
+    // Send game state to the new player
+    socket.emit('gameState', {
+      players,
+      self: socket.id,
+      projectiles: Object.values(projectiles)
+    });
+    
+    // Notify other players about the new player
+    socket.broadcast.emit('playerJoined', players[socket.id]);
   });
-  
-  // Broadcast new player to all other players
-  socket.broadcast.emit('playerJoined', players[socket.id]);
   
   // Handle player movement
   socket.on('updatePosition', (data) => {
     if (players[socket.id]) {
+      // Update player position
       players[socket.id].x = data.x;
       players[socket.id].y = data.y;
       players[socket.id].rotation = data.rotation;
+      players[socket.id].lastActivity = Date.now();
       
-      // Broadcast updated position to all other players
+      // Broadcast the updated position to other players
       socket.broadcast.emit('playerMoved', {
         id: socket.id,
         x: data.x,
@@ -98,56 +199,36 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Handle projectile fired
-  socket.on('projectileFired', (projectileData) => {
-    console.log(`Projectile fired by ${socket.id}:`, projectileData.id);
+  // Handle projectile firing
+  socket.on('projectileFired', (data) => {
+    // Add the projectile to the game
+    projectiles[data.id] = data;
+    players[socket.id].lastActivity = Date.now();
     
-    // Store the projectile
-    projectiles[projectileData.id] = {
-      ...projectileData,
-      timestamp: Date.now()
-    };
+    // Broadcast the projectile to other players
+    socket.broadcast.emit('projectileFired', data);
     
-    // Broadcast to all other players
-    socket.broadcast.emit('projectileFired', projectileData);
-    
-    // Clean up old projectiles after their lifetime
+    // Remove the projectile after a delay
     setTimeout(() => {
-      delete projectiles[projectileData.id];
-    }, 10000); // 10 seconds should be enough for any projectile to expire
+      delete projectiles[data.id];
+    }, 5000);
   });
   
   // Handle ship damage
   socket.on('damageShip', (data) => {
     const { targetId, amount } = data;
     
-    // Validate the damage request
-    if (players[targetId] && amount > 0) {
-      // Apply damage to the target ship
+    if (players[targetId]) {
+      // Update player hull
       players[targetId].hull -= amount;
+      players[socket.id].lastActivity = Date.now();
       
-      // Check if ship is destroyed
+      // Check if the ship is destroyed
       if (players[targetId].hull <= 0) {
-        players[targetId].hull = 0;
-        
-        // Broadcast ship destruction to all players
-        io.emit('shipDestroyed', {
-          id: targetId
-        });
-        
-        // Respawn the ship after a delay
-        setTimeout(() => {
-          if (players[targetId]) {
-            players[targetId].hull = 100;
-            players[targetId].x = Math.random() * 2500;
-            players[targetId].y = Math.random() * 2500;
-            
-            // Broadcast ship respawn
-            io.emit('shipRespawned', players[targetId]);
-          }
-        }, 5000); // 5 second respawn time
+        // Notify all players about the destruction
+        io.emit('shipDestroyed', { id: targetId });
       } else {
-        // Broadcast damage to all players
+        // Broadcast the damage to all players
         io.emit('shipDamaged', {
           id: targetId,
           hull: players[targetId].hull
@@ -156,17 +237,14 @@ io.on('connection', (socket) => {
     }
   });
   
-  // Handle player disconnection
-  socket.on('disconnect', () => {
-    console.log(`Player disconnected: ${socket.id}`);
-    
-    // Remove player from the game
-    delete players[socket.id];
-    
-    // Broadcast player left to all other players
-    io.emit('playerLeft', socket.id);
+  // Handle heartbeat
+  socket.on('heartbeat', () => {
+    if (players[socket.id]) {
+      players[socket.id].lastActivity = Date.now();
+      console.log(`Heartbeat received from player ${socket.id}`);
+    }
   });
-
+  
   // Handle respawn request
   socket.on('requestRespawn', () => {
     console.log(`Player ${socket.id} requested respawn`);
@@ -178,7 +256,9 @@ io.on('connection', (socket) => {
       y: Math.random() * 2500,
       rotation: Math.random() * Math.PI * 2,
       type: getRandomShipType(),
-      hull: 100
+      hull: 100,
+      deviceId: players[socket.id]?.deviceId || null,
+      lastActivity: Date.now()
     };
     
     // Send the updated player data back
@@ -187,13 +267,28 @@ io.on('connection', (socket) => {
     // Notify other players about the respawn
     socket.broadcast.emit('playerJoined', players[socket.id]);
   });
+  
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log(`Player disconnected: ${socket.id}`);
+    
+    // Remove the player's device connection
+    if (players[socket.id] && players[socket.id].deviceId) {
+      const deviceId = players[socket.id].deviceId;
+      
+      // Only remove the device connection if it belongs to this player
+      if (deviceConnections[deviceId] === socket.id) {
+        delete deviceConnections[deviceId];
+      }
+    }
+    
+    // Remove the player from the game
+    delete players[socket.id];
+    
+    // Notify other players
+    socket.broadcast.emit('playerLeft', socket.id);
+  });
 });
-
-// Helper function to get a random ship type
-function getRandomShipType() {
-  const types = ['destroyer', 'cruiser', 'battleship'];
-  return types[Math.floor(Math.random() * types.length)];
-}
 
 // Serve static files
 app.use(express.static(path.join(__dirname, '../public')));
@@ -215,6 +310,7 @@ app.get('/', (req, res) => {
           .status { padding: 20px; background-color: #f0f8ff; border-left: 5px solid #0077be; }
           .players { margin-top: 20px; }
           .test-link { display: inline-block; margin-top: 20px; padding: 10px 20px; background-color: #0077be; color: white; text-decoration: none; border-radius: 4px; }
+          .devices { margin-top: 20px; }
         </style>
       </head>
       <body>
@@ -222,10 +318,15 @@ app.get('/', (req, res) => {
         <div class="status">
           <p>Server is running on port ${PORT}</p>
           <p>Connected players: ${Object.keys(players).length}</p>
+          <p>Unique devices: ${Object.keys(deviceConnections).length}</p>
         </div>
         <div class="players">
           <h2>Active Players</h2>
           <pre>${JSON.stringify(players, null, 2)}</pre>
+        </div>
+        <div class="devices">
+          <h2>Device Connections</h2>
+          <pre>${JSON.stringify(deviceConnections, null, 2)}</pre>
         </div>
         <a href="/test" class="test-link">Open Connection Test Page</a>
       </body>

@@ -38,7 +38,7 @@ const ENEMY_INDICATOR_OPACITY = 0.7; // Reduced opacity to make it less prominen
 // Game world properties
 const WORLD_SIZE = 5000; // Size of the game world
 
-export function initGame(pixiApp: PIXI.Application): void {
+export function initGame(pixiApp: PIXI.Application): InputHandler {
   app = pixiApp;
   isGameOver = false;
   projectiles = [];
@@ -248,12 +248,17 @@ export function initGame(pixiApp: PIXI.Application): void {
   
   // Start the game loop
   app.ticker.add(gameLoop);
+  
+  // Return the input handler so it can be used by the mobile controls
+  return inputHandler;
 }
 
 /**
  * Create the player ship
  */
 function createPlayerShip(gameWorld: PIXI.Container): void {
+  // Start the player in the center of the world, but the server will update this position
+  // We're using the center as a safe default until we get the real position from the server
   playerShip = new Ship({
     x: WORLD_SIZE / 2,
     y: WORLD_SIZE / 2,
@@ -267,7 +272,13 @@ function createPlayerShip(gameWorld: PIXI.Container): void {
     playerId: 'local' // Local player always has 'local' as ID
   });
   
+  // Add the ship to the game world
   gameWorld.addChild(playerShip.sprite as any);
+  
+  console.log('Player ship created at initial position:', {
+    x: playerShip.x,
+    y: playerShip.y
+  });
 }
 
 /**
@@ -392,49 +403,72 @@ function rejoinGame(): void {
 }
 
 function handleShipControls(): void {
-  // Throttle controls
-  if (inputHandler.isKeyPressed('KeyW')) {
-    // Increase throttle
-    playerShip.increaseThrottle();
-  } else if (inputHandler.isKeyPressed('KeyS')) {
-    // Decrease throttle
-    playerShip.decreaseThrottle();
-  }
+  // Check if we're on a mobile device
+  const isMobile = inputHandler.isMobile();
   
-  // Rudder controls
-  if (inputHandler.isKeyPressed('KeyA')) {
-    // Turn rudder left
-    playerShip.turnRudderLeft();
-  } else if (inputHandler.isKeyPressed('KeyD')) {
-    // Turn rudder right
-    playerShip.turnRudderRight();
-  } else if (inputHandler.isKeyPressed('Space')) {
-    // Center rudder
-    playerShip.centerRudder();
-  }
-  
-  // Direct throttle settings with number keys
-  if (inputHandler.isKeyPressed('Digit1')) {
-    playerShip.setThrottle(ThrottleSetting.REVERSE_FULL);
-  } else if (inputHandler.isKeyPressed('Digit2')) {
-    playerShip.setThrottle(ThrottleSetting.REVERSE_HALF);
-  } else if (inputHandler.isKeyPressed('Digit3')) {
-    playerShip.setThrottle(ThrottleSetting.STOP);
-  } else if (inputHandler.isKeyPressed('Digit4')) {
-    playerShip.setThrottle(ThrottleSetting.SLOW);
-  } else if (inputHandler.isKeyPressed('Digit5')) {
-    playerShip.setThrottle(ThrottleSetting.HALF);
-  } else if (inputHandler.isKeyPressed('Digit6')) {
-    playerShip.setThrottle(ThrottleSetting.FLANK);
-  }
-  
-  // Direct rudder settings with Q, E, and R keys
-  if (inputHandler.isKeyPressed('KeyQ')) {
-    playerShip.setRudder(RudderSetting.FULL_LEFT);
-  } else if (inputHandler.isKeyPressed('KeyE')) {
-    playerShip.setRudder(RudderSetting.FULL_RIGHT);
-  } else if (inputHandler.isKeyPressed('KeyR')) {
-    playerShip.setRudder(RudderSetting.AHEAD);
+  // Handle virtual buttons for mobile
+  if (isMobile) {
+    // Throttle controls
+    if (inputHandler.isVirtualButtonPressed('throttleUp')) {
+      playerShip.increaseThrottle();
+    } else if (inputHandler.isVirtualButtonPressed('throttleDown')) {
+      playerShip.decreaseThrottle();
+    }
+    
+    // Rudder controls
+    if (inputHandler.isVirtualButtonPressed('rudderLeft')) {
+      playerShip.turnRudderLeft();
+    } else if (inputHandler.isVirtualButtonPressed('rudderRight')) {
+      playerShip.turnRudderRight();
+    } else if (inputHandler.isVirtualButtonPressed('rudderCenter')) {
+      playerShip.centerRudder();
+    }
+  } else {
+    // Keyboard controls for desktop
+    // Throttle controls
+    if (inputHandler.isKeyPressed('KeyW')) {
+      // Increase throttle
+      playerShip.increaseThrottle();
+    } else if (inputHandler.isKeyPressed('KeyS')) {
+      // Decrease throttle
+      playerShip.decreaseThrottle();
+    }
+    
+    // Rudder controls
+    if (inputHandler.isKeyPressed('KeyA')) {
+      // Turn rudder left
+      playerShip.turnRudderLeft();
+    } else if (inputHandler.isKeyPressed('KeyD')) {
+      // Turn rudder right
+      playerShip.turnRudderRight();
+    } else if (inputHandler.isKeyPressed('Space')) {
+      // Center rudder
+      playerShip.centerRudder();
+    }
+    
+    // Direct throttle settings with number keys
+    if (inputHandler.isKeyPressed('Digit1')) {
+      playerShip.setThrottle(ThrottleSetting.REVERSE_FULL);
+    } else if (inputHandler.isKeyPressed('Digit2')) {
+      playerShip.setThrottle(ThrottleSetting.REVERSE_HALF);
+    } else if (inputHandler.isKeyPressed('Digit3')) {
+      playerShip.setThrottle(ThrottleSetting.STOP);
+    } else if (inputHandler.isKeyPressed('Digit4')) {
+      playerShip.setThrottle(ThrottleSetting.SLOW);
+    } else if (inputHandler.isKeyPressed('Digit5')) {
+      playerShip.setThrottle(ThrottleSetting.HALF);
+    } else if (inputHandler.isKeyPressed('Digit6')) {
+      playerShip.setThrottle(ThrottleSetting.FLANK);
+    }
+    
+    // Direct rudder settings with Q, E, and R keys
+    if (inputHandler.isKeyPressed('KeyQ')) {
+      playerShip.setRudder(RudderSetting.FULL_LEFT);
+    } else if (inputHandler.isKeyPressed('KeyE')) {
+      playerShip.setRudder(RudderSetting.FULL_RIGHT);
+    } else if (inputHandler.isKeyPressed('KeyR')) {
+      playerShip.setRudder(RudderSetting.AHEAD);
+    }
   }
 }
 
@@ -679,23 +713,38 @@ function updateHealthBar(): void {
 function handleWeaponControls(): void {
   if (!playerShip || isGameOver) return;
   
-  // Fire primary weapon with left mouse button
-  if (inputHandler.isMouseButtonDown(0)) {
-    firePlayerWeapon(WeaponType.PRIMARY);
-  }
+  // Check if we're on a mobile device
+  const isMobile = inputHandler.isMobile();
   
-  // Fire secondary weapon with right mouse button
-  if (inputHandler.isMouseButtonDown(2)) {
-    firePlayerWeapon(WeaponType.SECONDARY);
-  }
-  
-  // Alternative keyboard controls
-  if (inputHandler.isKeyPressed('KeyF')) {
-    firePlayerWeapon(WeaponType.PRIMARY);
-  }
-  
-  if (inputHandler.isKeyPressed('KeyG')) {
-    firePlayerWeapon(WeaponType.SECONDARY);
+  if (isMobile) {
+    // Handle virtual weapon buttons for mobile
+    if (inputHandler.isVirtualButtonPressed('firePrimary')) {
+      firePlayerWeapon(WeaponType.PRIMARY);
+    }
+    
+    if (inputHandler.isVirtualButtonPressed('fireSecondary')) {
+      firePlayerWeapon(WeaponType.SECONDARY);
+    }
+  } else {
+    // Desktop controls
+    // Fire primary weapon with left mouse button
+    if (inputHandler.isMouseButtonDown(0)) {
+      firePlayerWeapon(WeaponType.PRIMARY);
+    }
+    
+    // Fire secondary weapon with right mouse button
+    if (inputHandler.isMouseButtonDown(2)) {
+      firePlayerWeapon(WeaponType.SECONDARY);
+    }
+    
+    // Alternative keyboard controls
+    if (inputHandler.isKeyPressed('KeyF')) {
+      firePlayerWeapon(WeaponType.PRIMARY);
+    }
+    
+    if (inputHandler.isKeyPressed('KeyG')) {
+      firePlayerWeapon(WeaponType.SECONDARY);
+    }
   }
 }
 
