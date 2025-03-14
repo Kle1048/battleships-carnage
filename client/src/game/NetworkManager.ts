@@ -73,6 +73,7 @@ export class NetworkManager {
   private onProjectileCreated: ((projectile: Projectile) => void) | null = null;
   private deviceId: string | null = null;
   private playerName: string = '';
+  private identificationTimeout: NodeJS.Timeout | null = null;
 
   constructor(gameContainer: PIXI.Container, serverUrl: string = SERVER_URL) {
     this.gameContainer = gameContainer;
@@ -99,6 +100,17 @@ export class NetworkManager {
       console.log(`- http://${ip}:3001`);
     });
     
+    // Clear any existing connections before connecting
+    if (this.socket) {
+      console.log('Cleaning up existing socket connection before creating a new one');
+      try {
+        this.socket.disconnect();
+        this.socket = null;
+      } catch (error) {
+        console.error('Error cleaning up existing socket:', error);
+      }
+    }
+    
     // Connect to the server
     this.connectToServer();
   }
@@ -106,13 +118,19 @@ export class NetworkManager {
   private connectToServer(): void {
     try {
       console.log(`Attempting to connect to server at ${this.serverUrl}...`);
+      console.log(`Using device ID: ${this.deviceId || 'none (will request new ID)'}`);
+      console.log(`Player name: ${this.playerName}`);
       
       // Create socket connection with better error handling and logging
       this.socket = io(this.serverUrl, {
         reconnectionAttempts: this.maxReconnectAttempts,
         timeout: 10000,
         transports: ['websocket', 'polling'],
-        forceNew: true
+        forceNew: true,
+        auth: {
+          deviceId: this.deviceId,
+          playerName: this.playerName
+        }
       });
       
       this.connectionStatus = 'connecting';
@@ -134,6 +152,16 @@ export class NetworkManager {
       // Identify this device to the server once connected
       this.socket.on('connect', () => {
         console.log(`Socket connected with ID: ${this.socket?.id}`);
+        console.log(`Identifying device with ID: ${this.deviceId || 'none (will request new ID)'}`);
+        
+        // Clear any pending identification timeout
+        if (this.identificationTimeout) {
+          clearTimeout(this.identificationTimeout);
+          this.identificationTimeout = null;
+        }
+        
+        // Only identify device - don't request game state yet
+        // Game state will be requested after identification is complete
         this.identifyDevice();
       });
     } catch (error) {
@@ -157,6 +185,33 @@ export class NetworkManager {
       
       // Store the server URL in localStorage so all clients use the same server
       localStorage.setItem('battleships_server_url', this.serverUrl);
+    });
+    
+    // Handle device ID assignment from server
+    this.socket.on('deviceIdAssigned', (data: { deviceId: string }) => {
+      console.log('Received device ID from server:', data.deviceId);
+      
+      // Store the device ID in localStorage for future connections
+      localStorage.setItem(DEVICE_ID_KEY, data.deviceId);
+      
+      // Update the local deviceId property
+      this.deviceId = data.deviceId;
+      
+      console.log('Device ID saved to localStorage');
+      
+      // Request game state after device identification is complete
+      // But give a short delay to ensure server has processed everything
+      setTimeout(() => {
+        this.requestGameState();
+      }, 300);
+    });
+    
+    // Handle identification required event
+    this.socket.on('identificationRequired', (data: { message: string }) => {
+      console.log('Server requires identification:', data.message);
+      
+      // Re-identify the device
+      this.identifyDevice();
     });
     
     this.socket.on('connect_error', (error) => {
@@ -226,29 +281,36 @@ export class NetworkManager {
       if (playerData && this.localPlayer) {
         console.log('Setting initial player position:', playerData);
         
-        // Update local player position and rotation
-        this.localPlayer.x = playerData.x;
-        this.localPlayer.y = playerData.y;
-        this.localPlayer.rotation = playerData.rotation;
-        
-        // Update ship type if needed
-        if (this.localPlayer.type !== playerData.type) {
-          this.localPlayer.type = playerData.type as ShipType;
+        // Validate position data
+        if (this.isValidPosition(playerData.x, playerData.y)) {
+          // Update local player position and rotation
+          this.localPlayer.x = playerData.x;
+          this.localPlayer.y = playerData.y;
+          this.localPlayer.rotation = playerData.rotation;
           
-          // Recreate sprite with new ship type
-          if (this.localPlayer.sprite.parent) {
-            this.localPlayer.sprite.parent.removeChild(this.localPlayer.sprite as any);
+          // Update ship type if needed
+          if (this.localPlayer.type !== playerData.type) {
+            this.localPlayer.type = playerData.type as ShipType;
+            
+            // Recreate sprite with new ship type
+            if (this.localPlayer.sprite.parent) {
+              this.localPlayer.sprite.parent.removeChild(this.localPlayer.sprite as any);
+            }
+            this.localPlayer.sprite = this.localPlayer.createShipSprite();
+            this.gameContainer.addChild(this.localPlayer.sprite as any);
           }
-          this.localPlayer.sprite = this.localPlayer.createShipSprite();
-          this.gameContainer.addChild(this.localPlayer.sprite as any);
-        }
-        
-        // Update sprite position
-        this.localPlayer.updateSpritePosition();
-        
-        // Reset spawn protection for initial spawn
-        if (typeof this.localPlayer.resetSpawnProtection === 'function') {
-          this.localPlayer.resetSpawnProtection();
+          
+          // Update sprite position
+          this.localPlayer.updateSpritePosition();
+          
+          // Reset spawn protection for initial spawn
+          if (typeof this.localPlayer.resetSpawnProtection === 'function') {
+            this.localPlayer.resetSpawnProtection();
+          }
+        } else {
+          console.error('Received invalid position from server:', playerData);
+          // Request a respawn to get a valid position
+          this.socket?.emit('requestRespawn');
         }
       }
       
@@ -256,7 +318,11 @@ export class NetworkManager {
       Object.values(state.players).forEach(player => {
         if (player.id !== this.playerId) {
           console.log(`Adding other player from game state: ${player.name} (${player.id})`);
-          this.addPlayer(player);
+          if (this.isValidPosition(player.x, player.y)) {
+            this.addPlayer(player);
+          } else {
+            console.error('Received invalid position for other player:', player);
+          }
         }
       });
       
@@ -294,7 +360,7 @@ export class NetworkManager {
     this.socket.on('playerMoved', (data: { id: string, x: number, y: number, rotation: number }) => {
       try {
         const ship = this.players.get(data.id);
-        if (ship) {
+        if (ship && this.isValidPosition(data.x, data.y)) {
           // Log position updates for debugging (only occasionally to avoid console spam)
           if (Math.random() < 0.05) { // Log only 5% of updates
             console.log(`Received position update for ${ship.playerName}: x=${Math.round(data.x)}, y=${Math.round(data.y)}, rot=${data.rotation.toFixed(2)}`);
@@ -320,11 +386,11 @@ export class NetworkManager {
             (ship as any).nameContainer.visible = true;
           }
         } else {
-          console.warn(`Received position update for unknown player: ${data.id}`);
+          console.warn(`Received invalid position update for player: ${data.id}`);
           
-          // Request game state to sync missing players
+          // Request game state to sync missing or invalid players
           if (this.socket && this.socket.connected) {
-            console.log('Requesting game state to sync missing players');
+            console.log('Requesting game state to sync players');
             this.socket.emit('requestGameState');
           }
         }
@@ -476,6 +542,30 @@ export class NetworkManager {
     this.socket.on('projectileFired', (projectileData: ProjectileData) => {
       console.log('Projectile fired by another player:', projectileData);
       this.handleProjectileFromServer(projectileData);
+    });
+
+    // Handle force disconnect (e.g., when kicked by admin)
+    this.socket.on('forceDisconnect', (data: { reason: string }) => {
+      console.warn(`Force disconnect received: ${data.reason}`);
+      
+      // Show notification to the player
+      if (typeof showNotification === 'function') {
+        showNotification(`Disconnected: ${data.reason}`, 10000);
+      }
+      
+      // Disconnect the socket
+      this.socket?.disconnect();
+      
+      // Update connection status
+      this.connectionStatus = 'disconnected';
+      
+      // Display a more prominent message
+      alert(`You have been disconnected from the server.\nReason: ${data.reason}`);
+      
+      // Reload the page after a short delay
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
     });
   }
 
@@ -747,16 +837,20 @@ export class NetworkManager {
    * Identify this device to the server
    */
   private identifyDevice(): void {
-    if (!this.socket || this.connectionStatus !== 'connected') {
-      console.warn('Cannot identify device: not connected to server');
+    if (!this.socket || !this.socket.connected) {
+      console.error('Cannot identify device: socket not connected');
       return;
     }
     
-    console.log('Identifying device with ID:', this.deviceId);
-    this.socket.emit('identifyDevice', { 
+    console.log('Identifying device to server...');
+    
+    // Send device ID to server (if we have one)
+    this.socket.emit('identifyDevice', {
       deviceId: this.deviceId,
       playerName: this.playerName
     });
+    
+    // Don't automatically request game state - wait for deviceIdAssigned event
   }
 
   /**
@@ -930,11 +1024,29 @@ export class NetworkManager {
    * This can be used to resynchronize when players are missing
    */
   public requestGameState(): void {
-    if (this.socket && this.socket.connected) {
-      console.log('Manually requesting game state from server');
-      this.socket.emit('requestGameState');
-    } else {
-      console.warn('Cannot request game state: not connected to server');
+    if (!this.socket || !this.socket.connected) {
+      console.error('Cannot request game state: socket not connected');
+      return;
     }
+    
+    console.log('Requesting game state from server...');
+    this.socket.emit('requestGameState');
+  }
+
+  // Add position validation method
+  private isValidPosition(x: number, y: number): boolean {
+    // Check if values are valid numbers
+    if (typeof x !== 'number' || typeof y !== 'number' || 
+        isNaN(x) || isNaN(y) || !isFinite(x) || !isFinite(y)) {
+      return false;
+    }
+    
+    // Check if values are within world bounds
+    const WORLD_SIZE = 5000;
+    if (x < 0 || x > WORLD_SIZE || y < 0 || y > WORLD_SIZE) {
+      return false;
+    }
+    
+    return true;
   }
 } 
