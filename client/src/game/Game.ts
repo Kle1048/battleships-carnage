@@ -4,6 +4,7 @@ import { InputHandler } from './InputHandler';
 import { NetworkManager } from './NetworkManager';
 import { Projectile, ProjectileType } from './Projectile';
 import { NetworkDebug } from './NetworkDebug';
+import * as Logger from '../utils/Logger';
 
 // Game state
 let app: PIXI.Application;
@@ -61,28 +62,6 @@ let playerListToggleText: PIXI.Text;
 // Add position update counter
 let positionUpdateCounter: number = 0;
 const POSITION_UPDATE_INTERVAL: number = 1; // Send position updates every frame (was 3)
-
-// Add sync button
-let syncButton: PIXI.Graphics;
-let syncButtonText: PIXI.Text;
-
-// Add debug key handler
-document.addEventListener('keydown', (e) => {
-  // Press F2 to toggle network debug
-  if (e.key === 'F2' && networkDebug) {
-    networkDebug.toggle();
-  }
-  
-  // Press F3 to force visibility check
-  if (e.key === 'F3' && networkDebug) {
-    networkDebug.checkVisibility();
-  }
-  
-  // Press F4 to force reconnection
-  if (e.key === 'F4' && networkDebug) {
-    networkDebug.forceReconnect();
-  }
-});
 
 export function initGame(pixiApp: PIXI.Application): InputHandler {
   app = pixiApp;
@@ -347,9 +326,6 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
   
   // Add click event to toggle button
   playerListToggleButton.on('pointerdown', togglePlayerList);
-  
-  // Create sync button
-  createSyncButton(uiContainer);
   
   // Set up game loop
   gameLoop = (delta: number) => {
@@ -808,9 +784,6 @@ function checkCollisions(): void {
   // Get all ships from the network manager
   const ships = networkManager.getAllShips();
   
-  // Debug info
-  console.log(`Checking collisions among ${ships.length} ships`);
-  
   // Check for collisions between all pairs of ships
   for (let i = 0; i < ships.length; i++) {
     const shipA = ships[i];
@@ -833,7 +806,7 @@ function checkCollisions(): void {
         continue;
       }
       
-      // Debug distances
+      // Calculate distance
       const dx = shipA.x - shipB.x;
       const dy = shipA.y - shipB.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
@@ -841,9 +814,6 @@ function checkCollisions(): void {
       
       // Check for collision
       if (distance < minDistance) {
-        console.log(`Collision detected between ${shipA.playerId} and ${shipB.playerId}!`);
-        console.log(`Distance: ${distance}, Min Distance: ${minDistance}`);
-        
         // Handle collision for both ships
         shipA.handleCollision(shipB);
         shipB.handleCollision(shipA);
@@ -936,26 +906,18 @@ function handleWeaponControls(): void {
   }
 }
 
+/**
+ * Fire the player's weapon
+ * @param weaponType The type of weapon to fire
+ */
 function firePlayerWeapon(weaponType: WeaponType): void {
-  if (!playerShip) {
-    console.error('Cannot fire weapon: playerShip is null');
-    return;
-  }
+  if (!playerShip) return;
   
-  // Log weapon state before firing
-  console.log(`Firing ${weaponType} weapon. Ship state:`, {
-    type: playerShip.type,
-    position: { x: playerShip.x, y: playerShip.y },
-    rotation: playerShip.rotation * (180 / Math.PI) + '°',
-    primaryCooldown: playerShip.primaryWeaponCooldown,
-    secondaryCooldown: playerShip.secondaryWeaponCooldown
-  });
-  
+  // Check which weapon to fire
   let fired = false;
-  
   if (weaponType === WeaponType.PRIMARY) {
     fired = playerShip.firePrimaryWeapon();
-  } else {
+  } else if (weaponType === WeaponType.SECONDARY) {
     fired = playerShip.fireSecondaryWeapon();
   }
   
@@ -963,18 +925,18 @@ function firePlayerWeapon(weaponType: WeaponType): void {
     // Get weapon properties
     const weaponProps = playerShip.getWeaponProperties(weaponType);
     if (!weaponProps) {
-      console.error(`No weapon properties found for ${weaponType} on ship type ${playerShip.type}`);
+      Logger.error('firePlayerWeapon', `No weapon properties found for ${weaponType} on ship type ${playerShip.type}`);
       return;
     }
     
     // Get mouse position in world coordinates
     const mousePos = inputHandler.getMousePosition();
     if (!mousePos) {
-      console.error('Cannot fire weapon: mouse position is null');
+      Logger.error('firePlayerWeapon', 'Cannot fire weapon: mouse position is null');
       return;
     }
     
-    console.log('Mouse position for firing:', mousePos);
+    Logger.debug('Mouse position for firing:', mousePos);
     
     // Convert screen coordinates to world coordinates
     // Since the camera is centered on the player, we need to calculate the offset
@@ -985,9 +947,11 @@ function firePlayerWeapon(weaponType: WeaponType): void {
     };
     
     // Log for debugging
-    console.log('Mouse Position:', mousePos);
-    console.log('Player Position:', { x: playerShip.x, y: playerShip.y });
-    console.log('World Mouse Position:', worldMousePos);
+    Logger.debug('Weapon firing details:', {
+      mousePosition: mousePos,
+      playerPosition: { x: playerShip.x, y: playerShip.y },
+      worldMousePosition: worldMousePos
+    });
     
     // Calculate angle from ship to mouse
     const angleToMouse = Math.atan2(
@@ -995,8 +959,10 @@ function firePlayerWeapon(weaponType: WeaponType): void {
       worldMousePos.x - playerShip.x
     );
     
-    console.log('Angle to Mouse:', angleToMouse * (180 / Math.PI) + '°');
-    console.log('Ship Rotation:', playerShip.rotation * (180 / Math.PI) + '°');
+    Logger.debug('Firing angles:', {
+      angleToMouse: angleToMouse * (180 / Math.PI) + '°',
+      shipRotation: playerShip.rotation * (180 / Math.PI) + '°'
+    });
     
     // Create projectiles
     for (let i = 0; i < weaponProps.count; i++) {
@@ -1036,8 +1002,8 @@ function firePlayerWeapon(weaponType: WeaponType): void {
         } else {
           console.error('Failed to create projectile sprite');
         }
-      } catch (error) {
-        console.error('Error creating projectile:', error);
+      } catch (err) {
+        Logger.error('firePlayerWeapon', err);
       }
     }
   } else {
@@ -1188,15 +1154,9 @@ function checkProjectileCollisions(): void {
   // Get all ships from network manager
   const ships = networkManager.getAllShips();
   
-  // Log collision check for debugging (every 60 frames)
-  if (frameCounter % 60 === 0) {
-    console.log(`Checking projectile collisions: ${projectiles.length} projectiles, ${ships.length} ships`);
-  }
-  
   // Check each projectile against each ship
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const projectile = projectiles[i];
-    let hitDetected = false;
     
     for (const ship of ships) {
       // Skip if ship is the source of the projectile
@@ -1204,12 +1164,9 @@ function checkProjectileCollisions(): void {
       
       // Check collision
       if (projectile.checkCollision(ship)) {
-        hitDetected = true;
-        
         // Only report damage to server, don't apply locally
         // The server will broadcast the damage and all clients will apply it consistently
         if (projectile.sourceShip === playerShip) {
-          console.log(`Reporting damage to server: target=${ship.id}, amount=${projectile.damage}`);
           networkManager.reportDamage(ship.id, projectile.damage);
           
           // Create visual effect for hit, but don't apply damage
@@ -1429,18 +1386,12 @@ window.addEventListener('resize', () => {
       playerListToggleButton.position.set(20, 70);
       playerListToggleText.position.set(playerListToggleButton.x + 15, playerListToggleButton.y + 15);
     }
-    
-    // Update sync button position
-    if (syncButton && syncButtonText) {
-      syncButton.position.set(60, 70);
-      syncButtonText.position.set(syncButton.x + 15, syncButton.y + 15);
-    }
   }
 });
 
 // Modify showNotification function to be more visible
-function showNotification(message: string, duration: number = 5000): void {
-  console.log("NOTIFICATION: " + message); // Log notification for debugging
+export function showNotification(message: string, duration: number = 5000): void {
+  Logger.info("NOTIFICATION:", message);
   
   // Clear any existing notification timeout
   if (notificationTimeout !== null) {
@@ -1451,21 +1402,20 @@ function showNotification(message: string, duration: number = 5000): void {
   notificationText.text = message;
   notificationText.alpha = 1;
   
-  // Fade out after duration
+  // Set up fade out
   notificationTimeout = window.setTimeout(() => {
-    // Fade out animation
     const fadeOut = () => {
-      notificationText.alpha -= 0.02; // Slower fade
-      if (notificationText.alpha > 0) {
+      if (notificationText.alpha > 0.05) {
+        notificationText.alpha -= 0.05;
         requestAnimationFrame(fadeOut);
+      } else {
+        notificationText.alpha = 0;
       }
     };
     fadeOut();
+    notificationTimeout = null;
   }, duration);
 }
-
-// Export getPlayerId for use in other modules
-export { showNotification };
 
 // Add togglePlayerList function
 function togglePlayerList(): void {
@@ -1497,37 +1447,4 @@ function updatePlayerList(): void {
   playerListBackground.beginFill(0x000000, 0.6);
   playerListBackground.drawRect(0, 0, width, playerListText.height + padding);
   playerListBackground.endFill();
-}
-
-// Add createSyncButton function
-function createSyncButton(uiContainer: PIXI.Container): void {
-  // Create sync button
-  syncButton = new PIXI.Graphics();
-  syncButton.beginFill(0x333333);
-  syncButton.drawRect(0, 0, 30, 30);
-  syncButton.endFill();
-  syncButton.position.set(60, 70); // Position it next to the player list toggle button
-  syncButton.interactive = true;
-  syncButton.cursor = 'pointer';
-  uiContainer.addChild(syncButton as unknown as PIXI.DisplayObject);
-  
-  // Create sync button text
-  syncButtonText = new PIXI.Text('S', {
-    fontFamily: 'Arial',
-    fontSize: 16,
-    fontWeight: 'bold',
-    fill: 0xFFFFFF,
-    align: 'center'
-  });
-  syncButtonText.anchor.set(0.5);
-  syncButtonText.position.set(syncButton.x + 15, syncButton.y + 15);
-  uiContainer.addChild(syncButtonText as unknown as PIXI.DisplayObject);
-  
-  // Add click event to sync button
-  syncButton.on('pointerdown', () => {
-    if (networkManager) {
-      showNotification('Requesting game state synchronization...', 2000);
-      networkManager.requestGameState();
-    }
-  });
 } 

@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { Ship } from './Ship';
 import { Projectile, ProjectileType } from './Projectile';
 import { showNotification } from './Game';
+import * as Logger from '../utils/Logger';
 
 // Import ShipType from Ship.ts
 type ShipType = 'destroyer' | 'cruiser' | 'battleship';
@@ -87,13 +88,13 @@ export class NetworkManager {
     
     // Try to get device ID from local storage
     this.deviceId = localStorage.getItem(DEVICE_ID_KEY);
-    console.log('Device ID from storage:', this.deviceId);
+    Logger.debug('Device ID from storage:', this.deviceId);
     
     // Get player name
     this.playerName = this.getPlayerName();
     
     // Log connection details for debugging
-    console.log(`Connecting to server at: ${this.serverUrl}`);
+    Logger.info(`Connecting to server at: ${this.serverUrl}`);
     console.log(`Possible local IPs: ${getLocalIPAddresses().join(', ')}`);
     console.log(`If you're having connection issues, try these URLs in your browser:`);
     getLocalIPAddresses().forEach(ip => {
@@ -102,12 +103,12 @@ export class NetworkManager {
     
     // Clear any existing connections before connecting
     if (this.socket) {
-      console.log('Cleaning up existing socket connection before creating a new one');
+      Logger.debug('Cleaning up existing socket connection before creating a new one');
       try {
         this.socket.disconnect();
         this.socket = null;
       } catch (error) {
-        console.error('Error cleaning up existing socket:', error);
+        Logger.error('NetworkManager.constructor', error);
       }
     }
     
@@ -117,9 +118,9 @@ export class NetworkManager {
 
   private connectToServer(): void {
     try {
-      console.log(`Attempting to connect to server at ${this.serverUrl}...`);
-      console.log(`Using device ID: ${this.deviceId || 'none (will request new ID)'}`);
-      console.log(`Player name: ${this.playerName}`);
+      Logger.debug(`Attempting to connect to server at ${this.serverUrl}...`);
+      Logger.debug(`Using device ID: ${this.deviceId || 'none (will request new ID)'}`);
+      Logger.debug(`Player name: ${this.playerName}`);
       
       // Create socket connection with better error handling and logging
       this.socket = io(this.serverUrl, {
@@ -141,18 +142,18 @@ export class NetworkManager {
       // Start sending heartbeats once connected
       const heartbeatInterval = setInterval(() => {
         if (this.socket && this.socket.connected) {
-          console.log('Sending heartbeat to server');
+          Logger.debug('Sending heartbeat to server');
           this.socket.emit('heartbeat');
         } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-          console.log('Max reconnect attempts reached, clearing heartbeat interval');
+          Logger.info('Max reconnect attempts reached, clearing heartbeat interval');
           clearInterval(heartbeatInterval);
         }
       }, 30000); // Send heartbeat every 30 seconds
       
       // Identify this device to the server once connected
       this.socket.on('connect', () => {
-        console.log(`Socket connected with ID: ${this.socket?.id}`);
-        console.log(`Identifying device with ID: ${this.deviceId || 'none (will request new ID)'}`);
+        Logger.info(`Socket connected with ID: ${this.socket?.id}`);
+        Logger.debug(`Identifying device with ID: ${this.deviceId || 'none (will request new ID)'}`);
         
         // Clear any pending identification timeout
         if (this.identificationTimeout) {
@@ -165,7 +166,7 @@ export class NetworkManager {
         this.identifyDevice();
       });
     } catch (error) {
-      console.error('Error connecting to server:', error);
+      Logger.error('NetworkManager.connectToServer', error);
       this.connectionStatus = 'disconnected';
     }
   }
@@ -175,13 +176,13 @@ export class NetworkManager {
     
     // Connection events
     this.socket.on('connect', () => {
-      console.log('Connected to server!');
+      Logger.info('Connected to server!');
       this.connectionStatus = 'connected';
       this.reconnectAttempts = 0;
       
       // Log server URL for debugging
-      console.log(`Successfully connected to server at: ${this.serverUrl}`);
-      console.log(`Socket ID: ${this.socket?.id}`);
+      Logger.debug(`Successfully connected to server at: ${this.serverUrl}`);
+      Logger.debug(`Socket ID: ${this.socket?.id}`);
       
       // Store the server URL in localStorage so all clients use the same server
       localStorage.setItem('battleships_server_url', this.serverUrl);
@@ -189,7 +190,7 @@ export class NetworkManager {
     
     // Handle device ID assignment from server
     this.socket.on('deviceIdAssigned', (data: { deviceId: string }) => {
-      console.log('Received device ID from server:', data.deviceId);
+      Logger.info('Received device ID from server:', data.deviceId);
       
       // Store the device ID in localStorage for future connections
       localStorage.setItem(DEVICE_ID_KEY, data.deviceId);
@@ -197,7 +198,7 @@ export class NetworkManager {
       // Update the local deviceId property
       this.deviceId = data.deviceId;
       
-      console.log('Device ID saved to localStorage');
+      Logger.debug('Device ID saved to localStorage');
       
       // Request game state after device identification is complete
       // But give a short delay to ensure server has processed everything
@@ -854,67 +855,12 @@ export class NetworkManager {
   }
 
   /**
-   * Debug function to check player visibility
-   * Call this periodically to ensure players are visible
+   * Request the current game state from the server
+   * This can be used to resynchronize when players are missing
    */
-  public debugCheckPlayerVisibility(): void {
-    try {
-      console.log('--- DEBUG: Player Visibility Check ---');
-      console.log(`Total players in game: ${this.players.size}`);
-      console.log(`Local player ID: ${this.playerId}`);
-      console.log(`Connection status: ${this.connectionStatus}`);
-      
-      // Check each player
-      this.players.forEach((ship, id) => {
-        const isLocal = id === this.playerId;
-        const isVisible = ship.sprite.visible;
-        const hasParent = !!ship.sprite.parent;
-        const position = { x: Math.round(ship.x), y: Math.round(ship.y) };
-        const distance = isLocal ? 0 : Math.round(
-          Math.sqrt(
-            Math.pow(ship.x - (this.localPlayer?.x || 0), 2) + 
-            Math.pow(ship.y - (this.localPlayer?.y || 0), 2)
-          )
-        );
-        
-        console.log(`Player ${ship.playerName} (${id}):`, {
-          isLocal,
-          isVisible,
-          hasParent,
-          position,
-          distance: isLocal ? 'N/A' : distance,
-          type: ship.type
-        });
-        
-        // Check name container
-        if ((ship as any).nameContainer) {
-          const nameVisible = (ship as any).nameContainer.visible;
-          const nameHasParent = !!(ship as any).nameContainer.parent;
-          console.log(`- Name container: visible=${nameVisible}, hasParent=${nameHasParent}`);
-        } else {
-          console.log(`- No name container found`);
-        }
-        
-        // If not visible but should be, try to fix it
-        if (!isVisible && hasParent) {
-          console.log(`Attempting to fix visibility for player ${ship.playerName}`);
-          ship.sprite.visible = true;
-        }
-        
-        // If no parent but should have one, try to re-add to container
-        if (!hasParent && !isLocal) {
-          console.log(`Attempting to fix missing parent for player ${ship.playerName}`);
-          this.gameContainer.addChild(ship.sprite as unknown as PIXI.DisplayObject);
-          
-          if ((ship as any).nameContainer && !(ship as any).nameContainer.parent) {
-            this.gameContainer.addChild((ship as any).nameContainer as unknown as PIXI.DisplayObject);
-          }
-        }
-      });
-      
-      console.log('--- End of Player Visibility Check ---');
-    } catch (error) {
-      console.error('Error in debugCheckPlayerVisibility:', error);
+  public requestGameState(): void {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('requestGameState');
     }
   }
 
@@ -926,127 +872,21 @@ export class NetworkManager {
     // First try localStorage
     const savedUrl = localStorage.getItem('battleships_server_url');
     if (savedUrl) {
-      console.log(`Using saved server URL from localStorage: ${savedUrl}`);
       return savedUrl;
     }
     
     // Then try environment variable
     if (process.env.REACT_APP_SERVER_URL) {
-      console.log(`Using server URL from environment: ${process.env.REACT_APP_SERVER_URL}`);
       return process.env.REACT_APP_SERVER_URL;
     }
     
     // Finally fall back to default
-    console.log(`Using default server URL: http://localhost:3001`);
     return 'http://localhost:3001';
   }
 
-  /**
-   * Debug function to check damage synchronization
-   */
-  public debugDamageSynchronization(): void {
-    try {
-      console.log('--- DEBUG: Damage Synchronization Check ---');
-      
-      // Check if we're connected to the server
-      console.log(`Connection status: ${this.connectionStatus}`);
-      console.log(`Socket connected: ${this.socket?.connected}`);
-      console.log(`Socket ID: ${this.socket?.id}`);
-      
-      // Log all players and their hull values
-      console.log('Players and hull values:');
-      this.players.forEach((ship, id) => {
-        console.log(`- ${ship.playerName} (${id}): hull=${ship.hull}/${ship.maxHull}, isLocal=${id === this.playerId}`);
-      });
-      
-      // Test damage reporting if we have other players
-      const otherPlayers = Array.from(this.players.entries())
-        .filter(([id]) => id !== this.playerId)
-        .map(([_, ship]) => ship);
-      
-      if (otherPlayers.length > 0) {
-        const testShip = otherPlayers[0];
-        console.log(`Test damage reporting available for: ${testShip.playerName} (${testShip.id})`);
-        console.log('To test, click the debug button (D) and check console logs');
-      } else {
-        console.log('No other players to test damage reporting with');
-      }
-      
-      console.log('--- End of Damage Synchronization Check ---');
-    } catch (error) {
-      console.error('Error in debugDamageSynchronization:', error);
-    }
-  }
-
-  /**
-   * Debug function to test collision detection
-   */
-  public debugTestCollision(): void {
-    try {
-      console.log('--- DEBUG: Testing Collision Detection ---');
-      
-      // Get all other players
-      const otherPlayers = Array.from(this.players.entries())
-        .filter(([id]) => id !== this.playerId)
-        .map(([_, ship]) => ship);
-      
-      if (otherPlayers.length === 0) {
-        console.log('No other players to test collision with');
-        return;
-      }
-      
-      // Get the first other player
-      const targetShip = otherPlayers[0];
-      console.log(`Testing collision with ${targetShip.playerName} (${targetShip.id})`);
-      
-      // Log positions
-      console.log(`- Local player position: (${Math.round(this.localPlayer?.x || 0)}, ${Math.round(this.localPlayer?.y || 0)})`);
-      console.log(`- Target position: (${Math.round(targetShip.x)}, ${Math.round(targetShip.y)})`);
-      
-      // Calculate distance
-      const dx = (this.localPlayer?.x || 0) - targetShip.x;
-      const dy = (this.localPlayer?.y || 0) - targetShip.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      console.log(`- Distance between ships: ${Math.round(distance)}`);
-      
-      // Test damage reporting
-      console.log('Sending test damage report to server...');
-      this.reportDamage(targetShip.id, 10);
-      
-      console.log('--- End of Collision Detection Test ---');
-    } catch (error) {
-      console.error('Error in debugTestCollision:', error);
-    }
-  }
-
-  /**
-   * Request the current game state from the server
-   * This can be used to resynchronize when players are missing
-   */
-  public requestGameState(): void {
-    if (!this.socket || !this.socket.connected) {
-      console.error('Cannot request game state: socket not connected');
-      return;
-    }
-    
-    console.log('Requesting game state from server...');
-    this.socket.emit('requestGameState');
-  }
-
-  // Add position validation method
   private isValidPosition(x: number, y: number): boolean {
-    // Check if values are valid numbers
-    if (typeof x !== 'number' || typeof y !== 'number' || 
-        isNaN(x) || isNaN(y) || !isFinite(x) || !isFinite(y)) {
-      return false;
-    }
-    
-    // Check if values are within world bounds
-    const WORLD_SIZE = 5000;
-    if (x < 0 || x > WORLD_SIZE || y < 0 || y > WORLD_SIZE) {
-      return false;
-    }
-    
-    return true;
+    // Add validation based on your game world boundaries
+    // For now, just basic validation to prevent NaN and Infinity
+    return Number.isFinite(x) && Number.isFinite(y);
   }
 } 

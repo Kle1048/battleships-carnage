@@ -5,27 +5,56 @@
 // Set to false in production
 export const DEBUG_MODE = process.env.NODE_ENV === 'development';
 
+// Log levels
+export enum LogLevel {
+  NONE = 0,
+  ERROR = 1,
+  WARN = 2,
+  INFO = 3,
+  DEBUG = 4
+}
+
+// Current log level - can be controlled via environment variable
+export const CURRENT_LOG_LEVEL: LogLevel = DEBUG_MODE 
+  ? LogLevel.DEBUG
+  : (process.env.REACT_APP_LOG_LEVEL 
+      ? parseInt(process.env.REACT_APP_LOG_LEVEL) 
+      : LogLevel.ERROR);
+
 /**
- * Log a message to the console (only in debug mode)
+ * Log a debug message (only in debug mode or if log level is DEBUG)
  */
-export function log(...args: any[]): void {
-  if (DEBUG_MODE) {
-    console.log(...args);
+export function debug(...args: any[]): void {
+  if (CURRENT_LOG_LEVEL >= LogLevel.DEBUG) {
+    console.log('🐞 DEBUG:', ...args);
   }
 }
 
 /**
- * Log a warning to the console (always shown)
+ * Log an info message (only if log level is INFO or higher)
  */
-export function warn(message: string, ...args: any[]): void {
-  console.warn(`⚠️ WARNING: ${message}`, ...args);
+export function info(...args: any[]): void {
+  if (CURRENT_LOG_LEVEL >= LogLevel.INFO) {
+    console.log('ℹ️ INFO:', ...args);
+  }
 }
 
 /**
- * Log an error with context information
+ * Log a warning message (only if log level is WARN or higher)
+ */
+export function warn(message: string, ...args: any[]): void {
+  if (CURRENT_LOG_LEVEL >= LogLevel.WARN) {
+    console.warn('⚠️ WARNING:', message, ...args);
+  }
+}
+
+/**
+ * Log an error message (always shown unless log level is NONE)
  */
 export function error(context: string, error: any): void {
-  console.error(`❌ ERROR in ${context}:`, error);
+  if (CURRENT_LOG_LEVEL >= LogLevel.ERROR) {
+    console.error(`❌ ERROR in ${context}:`, error);
+  }
 }
 
 /**
@@ -41,9 +70,16 @@ export function handleError(context: string, error: any, fallback?: () => void):
     try {
       fallback();
     } catch (fallbackError) {
-      console.error(`Failed to execute fallback for ${context}:`, fallbackError);
+      error(`Failed to execute fallback for ${context}`, fallbackError);
     }
   }
+}
+
+/**
+ * For legacy compatibility - equivalent to debug
+ */
+export function log(...args: any[]): void {
+  debug(...args);
 }
 
 /**

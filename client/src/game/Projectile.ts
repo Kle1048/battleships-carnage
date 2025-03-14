@@ -1,5 +1,6 @@
 import * as PIXI from 'pixi.js';
 import { Ship } from './Ship';
+import * as Logger from '../utils/Logger';
 
 // Projectile types
 export enum ProjectileType {
@@ -105,7 +106,7 @@ export class Projectile {
       
       return sprite;
     } catch (error) {
-      console.error('Error creating projectile sprite:', error);
+      Logger.error('Projectile.createProjectileSprite', error);
       // Return a simple fallback sprite
       const fallbackSprite = new PIXI.Graphics();
       fallbackSprite.beginFill(0xFF0000);
@@ -131,17 +132,6 @@ export class Projectile {
       const vx = Math.cos(this.rotation) * this.speed;
       const vy = Math.sin(this.rotation) * this.speed;
       
-      // Log movement for debugging (only for first few frames)
-      if (this.currentLifetime <= 3) {
-        console.log(`Projectile ${this.id} movement:`, {
-          position: { x: this.x, y: this.y },
-          velocity: { vx, vy },
-          rotation: this.rotation * (180 / Math.PI) + '°',
-          speed: this.speed,
-          lifetime: this.currentLifetime
-        });
-      }
-      
       this.x += vx;
       this.y += vy;
       
@@ -165,19 +155,13 @@ export class Projectile {
           this.sprite.rotation = this.rotation;
         }
       } else {
-        console.warn('Projectile sprite is null or undefined');
+        Logger.warn('Projectile sprite is null or undefined');
         return false; // Remove projectile if sprite is missing
-      }
-      
-      // Add some visual effects based on projectile type
-      if (this.type === ProjectileType.TORPEDO && this.currentLifetime % 5 === 0) {
-        // Add bubbles or wake effect for torpedoes
-        // This would be expanded in a more complete implementation
       }
       
       return true; // Projectile is still active
     } catch (error) {
-      console.error('Error updating projectile:', error);
+      Logger.error('Projectile.update', error);
       return false; // Remove projectile on error
     }
   }
@@ -196,17 +180,8 @@ export class Projectile {
     // Use a slightly larger collision radius for better hit detection
     const projectileRadius = this.radius * 1.2;
     const shipRadius = ship.collisionRadius * 1.2;
-    const hasCollided = distance < (projectileRadius + shipRadius);
     
-    // Log collision checks for debugging
-    if (hasCollided) {
-      console.log(`Projectile collision detected with ${ship.playerName}!`);
-      console.log(`- Projectile position: (${Math.round(this.x)}, ${Math.round(this.y)})`);
-      console.log(`- Ship position: (${Math.round(ship.x)}, ${Math.round(ship.y)})`);
-      console.log(`- Distance: ${Math.round(distance)}, Combined radius: ${Math.round(projectileRadius + shipRadius)}`);
-    }
-    
-    return hasCollided;
+    return distance < (projectileRadius + shipRadius);
   }
   
   public applyDamage(ship: Ship): void {

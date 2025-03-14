@@ -1,154 +1,47 @@
 import * as PIXI from 'pixi.js';
 import { NetworkManager } from './NetworkManager';
-import { Ship } from './Ship';
 
 /**
- * NetworkDebug - A utility class to help diagnose network synchronization issues
+ * NetworkDebug - Stubbed version for production
+ * This class maintains the interface but disables all debug functionality.
  */
 export class NetworkDebug {
-  private networkManager: NetworkManager;
-  private debugContainer: PIXI.Container;
-  private debugText: PIXI.Text;
-  private isEnabled: boolean = false;
-  private app: PIXI.Application;
-  private localPlayerId: string = '';
-
   constructor(app: PIXI.Application, networkManager: NetworkManager) {
-    this.app = app;
-    this.networkManager = networkManager;
-    this.debugContainer = new PIXI.Container();
-    app.stage.addChild(this.debugContainer as any);
-
-    // Create debug text display
-    this.debugText = new PIXI.Text('Network Debug: Disabled', {
-      fontFamily: 'Arial',
-      fontSize: 12,
-      fill: 0xFFFFFF,
-      align: 'left'
-    });
-    this.debugText.position.set(10, app.screen.height - 150);
-    this.debugContainer.addChild(this.debugText as any);
-
-    // Create toggle button
-    const toggleButton = new PIXI.Graphics();
-    toggleButton.beginFill(0x333333);
-    toggleButton.drawRect(0, 0, 30, 30);
-    toggleButton.endFill();
-    toggleButton.position.set(10, app.screen.height - 40);
-    toggleButton.interactive = true;
-    toggleButton.cursor = 'pointer';
-    toggleButton.on('pointerdown', this.toggle.bind(this));
-    this.debugContainer.addChild(toggleButton as any);
-
-    // Create button text
-    const buttonText = new PIXI.Text('D', {
-      fontFamily: 'Arial',
-      fontSize: 16,
-      fontWeight: 'bold',
-      fill: 0xFFFFFF,
-      align: 'center'
-    });
-    buttonText.anchor.set(0.5);
-    buttonText.position.set(toggleButton.x + 15, toggleButton.y + 15);
-    this.debugContainer.addChild(buttonText as any);
-
-    // Update on window resize
-    window.addEventListener('resize', () => {
-      this.debugText.position.set(10, app.screen.height - 150);
-      toggleButton.position.set(10, app.screen.height - 40);
-      buttonText.position.set(toggleButton.x + 15, toggleButton.y + 15);
-    });
+    // Stub constructor - does nothing
   }
 
   /**
-   * Toggle debug display
+   * Toggle debug display - disabled in production
    */
   public toggle(): void {
-    this.isEnabled = !this.isEnabled;
-    this.debugText.text = `Network Debug: ${this.isEnabled ? 'Enabled' : 'Disabled'}`;
-    console.log(`Network debug ${this.isEnabled ? 'enabled' : 'disabled'}`);
+    // Debug disabled in production
   }
 
   /**
-   * Set the local player ID
+   * Set the local player ID - disabled in production
    */
   public setLocalPlayerId(id: string): void {
-    this.localPlayerId = id;
+    // Debug disabled in production
   }
 
   /**
-   * Update the debug display
+   * Update the debug display - disabled in production
    */
   public update(): void {
-    if (!this.isEnabled) return;
-
-    const ships = this.networkManager.getAllShips();
-    const connectionStatus = this.networkManager.getConnectionStatus();
-    
-    let debugInfo = `Network Debug (Enabled)\n`;
-    debugInfo += `Connection: ${connectionStatus}\n`;
-    debugInfo += `Local Player ID: ${this.localPlayerId}\n`;
-    debugInfo += `Total Players: ${ships.length}\n\n`;
-    
-    // Display info for each player
-    ships.forEach((ship: Ship) => {
-      const isLocal = ship.playerId === this.localPlayerId;
-      debugInfo += `Player: ${ship.playerName} (${ship.playerId})${isLocal ? ' - YOU' : ''}\n`;
-      debugInfo += `  Position: x=${Math.round(ship.x)}, y=${Math.round(ship.y)}\n`;
-      debugInfo += `  Sprite Visible: ${ship.sprite.visible}\n`;
-      debugInfo += `  Sprite Has Parent: ${!!ship.sprite.parent}\n`;
-      debugInfo += `  Name Visible: ${(ship as any).nameContainer?.visible || false}\n`;
-      debugInfo += `  Hull: ${ship.hull}\n\n`;
-    });
-    
-    this.debugText.text = debugInfo;
+    // Debug disabled in production
   }
 
   /**
-   * Force a visibility check on all players
+   * Force a visibility check on all players - disabled in production
    */
   public checkVisibility(): void {
-    console.log('Checking player visibility...');
-    const ships = this.networkManager.getAllShips();
-    
-    ships.forEach((ship: Ship) => {
-      const isLocal = ship.playerId === this.localPlayerId;
-      console.log(`Player: ${ship.playerName} (${ship.playerId})${isLocal ? ' - YOU' : ''}`);
-      console.log(`  Position: x=${Math.round(ship.x)}, y=${Math.round(ship.y)}`);
-      console.log(`  Sprite Visible: ${ship.sprite.visible}`);
-      console.log(`  Sprite Has Parent: ${!!ship.sprite.parent}`);
-      
-      // Check if sprite is in the display list
-      if (!ship.sprite.visible && ship.sprite.parent) {
-        console.log('  Forcing sprite to be visible');
-        ship.sprite.visible = true;
-      }
-      
-      // Check name container
-      if ((ship as any).nameContainer) {
-        console.log(`  Name Container Visible: ${(ship as any).nameContainer.visible}`);
-        console.log(`  Name Container Has Parent: ${!!(ship as any).nameContainer.parent}`);
-        
-        if (!(ship as any).nameContainer.visible && (ship as any).nameContainer.parent) {
-          console.log('  Forcing name container to be visible');
-          (ship as any).nameContainer.visible = true;
-        }
-      }
-      
-      // Force update sprite position
-      ship.updateSpritePosition();
-    });
+    // Debug disabled in production
   }
 
   /**
-   * Force a reconnection to the server
+   * Force a reconnection to the server - disabled in production
    */
   public forceReconnect(): void {
-    console.log('Forcing reconnection to server...');
-    this.networkManager.cleanup();
-    // Wait a moment before reconnecting
-    setTimeout(() => {
-      window.location.reload();
-    }, 1000);
+    // Debug disabled in production
   }
 } 
