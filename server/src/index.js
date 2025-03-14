@@ -79,35 +79,50 @@ function getRandomShipType() {
 
 // Clean up inactive players periodically
 setInterval(() => {
-  const now = Date.now();
-  let cleanupCount = 0;
-  
-  Object.keys(players).forEach(playerId => {
-    const player = players[playerId];
+  try {
+    const now = Date.now();
+    let cleanupCount = 0;
     
-    // Check if player has been inactive for too long
-    if (player.lastActivity && now - player.lastActivity > INACTIVE_TIMEOUT) {
-      console.log(`Cleaning up inactive player ${playerId} (inactive for ${Math.floor((now - player.lastActivity) / 1000)} seconds)`);
-      
-      // Remove player from the game
-      delete players[playerId];
-      
-      // Remove device connection if it exists
-      if (player.deviceId && deviceConnections[player.deviceId] === playerId) {
-        delete deviceConnections[player.deviceId];
+    Object.keys(players).forEach(playerId => {
+      try {
+        const player = players[playerId];
+        if (!player) {
+          console.warn(`Found invalid player entry for ID ${playerId}`);
+          delete players[playerId];
+          return;
+        }
+        
+        // Check if player has been inactive for too long
+        if (player.lastActivity && now - player.lastActivity > INACTIVE_TIMEOUT) {
+          console.log(`Cleaning up inactive player ${playerId} (inactive for ${Math.floor((now - player.lastActivity) / 1000)} seconds)`);
+          
+          // Remove player from the game
+          delete players[playerId];
+          
+          // Remove device connection if it exists
+          if (player.deviceId && deviceConnections[player.deviceId] === playerId) {
+            delete deviceConnections[player.deviceId];
+          }
+          
+          // Notify other players
+          io.emit('playerLeft', playerId);
+          
+          cleanupCount++;
+        }
+      } catch (playerError) {
+        console.error(`Error cleaning up player ${playerId}:`, playerError);
+        // Try to remove the problematic player entry
+        delete players[playerId];
       }
-      
-      // Notify other players
-      io.emit('playerLeft', playerId);
-      
-      cleanupCount++;
+    });
+    
+    if (cleanupCount > 0) {
+      console.log(`Cleaned up ${cleanupCount} inactive players`);
     }
-  });
-  
-  if (cleanupCount > 0) {
-    console.log(`Cleaned up ${cleanupCount} inactive players`);
+  } catch (error) {
+    console.error('Error in cleanup interval:', error);
   }
-}, 60000); // Check every minute
+}, 60000);
 
 // Handle socket connections
 io.on('connection', (socket) => {
@@ -116,6 +131,7 @@ io.on('connection', (socket) => {
   // Handle device identification
   socket.on('identifyDevice', (data) => {
     let deviceId = data.deviceId;
+    const playerName = data.playerName || 'Unknown Player';
     
     // If no device ID provided, generate a new one
     if (!deviceId) {
@@ -166,6 +182,7 @@ io.on('connection', (socket) => {
       type: getRandomShipType(),
       hull: 100,
       deviceId: deviceId,
+      name: playerName,
       lastActivity: Date.now()
     };
     
@@ -180,27 +197,72 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('playerJoined', players[socket.id]);
   });
   
+  // Handle game state request
+  socket.on('requestGameState', () => {
+    console.log(`Player ${socket.id} requested game state`);
+    
+    // Check if player exists
+    if (!players[socket.id]) {
+      console.warn(`Player ${socket.id} requested game state but doesn't exist in players list`);
+      
+      // Create a new player as a fallback
+      players[socket.id] = {
+        id: socket.id,
+        x: Math.random() * 2500,
+        y: Math.random() * 2500,
+        rotation: Math.random() * Math.PI * 2,
+        type: getRandomShipType(),
+        hull: 100,
+        deviceId: null,
+        name: 'Reconnected Player',
+        lastActivity: Date.now()
+      };
+      
+      console.log(`Created new player entry for ${socket.id}`);
+    }
+    
+    // Update last activity timestamp
+    players[socket.id].lastActivity = Date.now();
+    
+    // Send game state to the requesting player
+    socket.emit('gameState', {
+      players,
+      self: socket.id,
+      projectiles: Object.values(projectiles)
+    });
+    
+    console.log(`Sent game state to player ${socket.id} with ${Object.keys(players).length} players`);
+  });
+  
   // Handle player movement
   socket.on('updatePosition', (data) => {
-    if (players[socket.id]) {
-      // Update player position
-      players[socket.id].x = data.x;
-      players[socket.id].y = data.y;
-      players[socket.id].rotation = data.rotation;
-      players[socket.id].lastActivity = Date.now();
-      
-      // Broadcast the updated position to other players
-      socket.broadcast.emit('playerMoved', {
-        id: socket.id,
-        x: data.x,
-        y: data.y,
-        rotation: data.rotation
-      });
+    if (!players[socket.id]) {
+      console.warn(`Received position update from non-existent player ${socket.id}`);
+      return;
     }
+
+    // Update player position
+    players[socket.id].x = data.x;
+    players[socket.id].y = data.y;
+    players[socket.id].rotation = data.rotation;
+    players[socket.id].lastActivity = Date.now();
+    
+    // Broadcast the updated position to other players
+    socket.broadcast.emit('playerMoved', {
+      id: socket.id,
+      x: data.x,
+      y: data.y,
+      rotation: data.rotation
+    });
   });
   
   // Handle projectile firing
   socket.on('projectileFired', (data) => {
+    if (!players[socket.id]) {
+      console.warn(`Received projectile from non-existent player ${socket.id}`);
+      return;
+    }
+
     // Add the projectile to the game
     projectiles[data.id] = data;
     players[socket.id].lastActivity = Date.now();
@@ -218,31 +280,37 @@ io.on('connection', (socket) => {
   socket.on('damageShip', (data) => {
     const { targetId, amount } = data;
     
-    if (players[targetId]) {
-      // Update player hull
-      players[targetId].hull -= amount;
-      players[socket.id].lastActivity = Date.now();
-      
-      // Check if the ship is destroyed
-      if (players[targetId].hull <= 0) {
-        // Notify all players about the destruction
-        io.emit('shipDestroyed', { id: targetId });
-      } else {
-        // Broadcast the damage to all players
-        io.emit('shipDamaged', {
-          id: targetId,
-          hull: players[targetId].hull
-        });
-      }
+    if (!players[socket.id] || !players[targetId]) {
+      console.warn(`Invalid damage report: source=${socket.id}, target=${targetId}`);
+      return;
+    }
+
+    // Update player hull
+    players[targetId].hull -= amount;
+    players[socket.id].lastActivity = Date.now();
+    
+    // Check if the ship is destroyed
+    if (players[targetId].hull <= 0) {
+      // Notify all players about the destruction
+      io.emit('shipDestroyed', { id: targetId });
+    } else {
+      // Broadcast the damage to all players
+      io.emit('shipDamaged', {
+        id: targetId,
+        hull: players[targetId].hull
+      });
     }
   });
   
   // Handle heartbeat
   socket.on('heartbeat', () => {
-    if (players[socket.id]) {
-      players[socket.id].lastActivity = Date.now();
-      console.log(`Heartbeat received from player ${socket.id}`);
+    if (!players[socket.id]) {
+      console.warn(`Received heartbeat from non-existent player ${socket.id}`);
+      return;
     }
+
+    players[socket.id].lastActivity = Date.now();
+    console.log(`Heartbeat received from player ${socket.id}`);
   });
   
   // Handle respawn request

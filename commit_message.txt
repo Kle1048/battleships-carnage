@@ -384,4 +384,320 @@ This commit adds a helpful navigation feature to the game:
    - Size and distance are balanced for good visibility without obstruction
 
 This feature helps players locate enemies more easily, especially when they're
-off-screen or difficult to spot, improving the overall gameplay experience. 
+off-screen or difficult to spot, improving the overall gameplay experience.
+
+[Cursor] Refine enemy indicator arrow
+
+This commit refines the enemy indicator arrow to make it more subtle and less intrusive:
+
+1. Reduced Size and Prominence:
+   - Decreased arrow size from 15px to 8px
+   - Added ENEMY_INDICATOR_SIZE constant for easier adjustments
+   - Made the arrow proportionally narrower and more elegant
+
+2. Repositioned to Screen Edge:
+   - Increased distance from player ship from 100px to 250px
+   - Arrow now appears closer to the edge of the screen
+   - Provides directional information without cluttering the central play area
+
+3. Improved Visual Style:
+   - Reduced opacity to 70% for a more subtle appearance
+   - Decreased border thickness from 1px to 0.5px
+   - Applied opacity to both fill and stroke for consistency
+   - Maintained red/white color scheme for visibility against the water
+
+4. Enhanced Configurability:
+   - Added dedicated constants for size, distance, and opacity
+   - Made all dimensions proportional to the size constant
+   - Easier to adjust and fine-tune in the future
+
+These changes make the enemy indicator less distracting while still providing
+valuable directional information to the player.
+
+[Cursor] Remove white border from enemy indicator arrow
+
+This commit makes a simple visual improvement to the enemy indicator arrow:
+
+1. Removed White Border:
+   - Removed the white outline/border from the enemy indicator arrow
+   - Arrow is now a solid red shape with no border
+   - Maintains the same size, position, and opacity settings
+   - Provides a cleaner, more minimalist visual appearance
+
+2. Simplified Drawing Code:
+   - Removed the redundant lineStyle and second drawing section
+   - Kept only the red fill for the arrow shape
+   - Maintained the same arrow geometry and proportions
+   - Added a clear comment explaining the change
+
+This change further refines the enemy indicator to be even more subtle
+while still providing clear directional information to the player.
+
+[Cursor] Fix projectile firing issues and add error handling
+
+This commit addresses an issue where projectiles sometimes don't spawn despite the flash effect being shown:
+
+1. Enhanced Error Handling:
+   - Added try-catch blocks around critical projectile creation and update code
+   - Added detailed error logging to help diagnose issues
+   - Implemented graceful failure handling to prevent game crashes
+   - Added null checks for projectile sprites before accessing properties
+
+2. Fixed Projectile Creation:
+   - Added verification that projectile sprite is properly created before adding to container
+   - Implemented fallback sprite creation if the normal sprite creation fails
+   - Added debug logging to track successful projectile creation
+   - Ensured projectiles are always properly removed from the game when they expire
+
+3. Improved Projectile Lifecycle Management:
+   - Added checks for undefined projectiles in the update loop
+   - Ensured projectiles are always removed from the array even if cleanup fails
+   - Added separate error handling for projectile creation and cleanup phases
+   - Fixed potential memory leaks by ensuring proper cleanup
+
+These changes make the weapon system more robust and reliable, ensuring that
+projectiles are consistently created and displayed when weapons are fired.
+
+[Cursor] Fix weapon firing issues at game start
+
+This commit addresses an issue where weapons couldn't be fired immediately after the game started:
+
+1. Fixed Weapon Initialization:
+   - Explicitly initialized weapon cooldowns to 0 in the Ship constructor
+   - Added debug logging to weapon firing methods to help diagnose issues
+   - Added comprehensive error checking in the firePlayerWeapon function
+   - Added detailed logging of weapon state and firing attempts
+
+2. Improved Mouse Position Handling:
+   - Initialized mouse position to the center of the screen by default
+   - Added fallback for cases where mouse position isn't properly set
+   - Added validation to prevent errors when mouse position is unavailable
+   - Added logging of mouse position during weapon firing
+
+3. Enhanced Error Handling:
+   - Added null checks for playerShip and weaponProps
+   - Added detailed error messages for debugging
+   - Added logging for cases where weapons couldn't be fired
+   - Improved error reporting for failed projectile creation
+
+These changes ensure that weapons can be fired immediately when the game starts,
+without requiring the player to perform maneuvers first. The additional logging
+and error handling also make it easier to diagnose any future issues with the
+weapon system.
+
+[Cursor] Fix weapon firing issues related to ship direction and angle
+
+This commit addresses issues with projectile firing related to ship direction and angle:
+
+1. Improved Projectile Spawn Positions:
+   - Completely redesigned the getProjectileSpawnPosition method in Ship class
+   - Added proper offset calculations based on ship type and weapon type
+   - Implemented multi-cannon positioning for ships with multiple weapons
+   - Added lateral offsets for multi-projectile weapons (spread cannons/torpedoes)
+   - Added detailed logging of spawn positions for debugging
+
+2. Enhanced Angle Calculation:
+   - Fixed angle calculation in firePlayerWeapon function
+   - Added more detailed logging of ship rotation and firing angles
+   - Ensured consistent angle handling between ship rotation and projectile direction
+   - Improved spread calculation for multi-projectile weapons
+   - Added angle information to projectile creation logs
+
+3. Fixed Projectile Movement:
+   - Enhanced the Projectile update method to ensure correct movement
+   - Added detailed movement logging for the first few frames
+   - Improved torpedo projectile visuals by rotating sprites to match movement
+   - Added clear comments explaining the coordinate system and rotation conventions
+   - Fixed potential issues with projectile trajectory calculation
+
+These changes ensure that projectiles fire correctly regardless of ship direction,
+and that the firing angle properly corresponds to the mouse position. The improved
+spawn positions also make multi-cannon ships more visually appealing and realistic.
+
+[Cursor] Fix "app.ticker is null" error in createFiringEffect
+
+This commit addresses a critical error that occurs when projectiles are received from the network:
+
+1. Fixed createFiringEffect Function:
+   - Added robust error handling with try-catch blocks
+   - Implemented a fallback animation mechanism using setTimeout when app.ticker is null
+   - Added null checks for flash.parent before removing children
+   - Added detailed error logging to help diagnose issues
+   - Made the function more resilient to edge cases
+
+2. Enhanced Network Projectile Handling:
+   - Added try-catch blocks around the NetworkManager's projectile callback
+   - Added verification that projectile sprite exists before adding to container
+   - Improved error reporting for network projectile handling
+   - Added success logging for better debugging
+   - Made the callback more resilient to unexpected states
+
+3. Improved Error Recovery:
+   - The game now gracefully handles the case when app.ticker is null
+   - Visual effects still work even when the primary animation system is unavailable
+   - Prevents cascading errors that could crash the game
+   - Maintains visual feedback for network projectiles
+
+These changes ensure that projectiles received from other players are properly
+displayed and animated, even in edge cases where the PIXI.js ticker might not be
+fully initialized or available.
+
+[Cursor] Add mobile touch controls for better gameplay on mobile devices
+
+This commit adds comprehensive touch controls for mobile devices, making the game
+playable on smartphones and tablets:
+
+1. Mobile Device Detection:
+   - Added device detection based on user agent and screen size
+   - Automatically shows touch controls when on mobile devices
+   - Maintains keyboard/mouse controls on desktop devices
+   - Provides responsive layout for different screen sizes and orientations
+
+2. Touch Input System:
+   - Enhanced InputHandler class with touch event support
+   - Added virtual button system for mobile controls
+   - Implemented touch position tracking for aiming
+   - Ensured proper event handling with preventDefault to avoid browser gestures
+
+3. Mobile UI Controls:
+   - Created dedicated MobileControls React component
+   - Added intuitive touch controls for ship movement (throttle and rudder)
+   - Added weapon firing buttons for primary and secondary weapons
+   - Implemented visual feedback for button presses
+   - Positioned controls for easy thumb access on both portrait and landscape orientations
+
+4. Responsive Design:
+   - Added media queries for different screen sizes and orientations
+   - Optimized button sizes and positions for various devices
+   - Ensured controls remain usable in landscape mode
+   - Added semi-transparent styling to avoid obscuring the game view
+
+5. Game Integration:
+   - Updated Game.ts to handle virtual button inputs
+   - Modified ship control logic to work with touch inputs
+   - Ensured aiming works correctly with touch positions
+   - Maintained compatibility with existing keyboard/mouse controls
+
+These changes make the game fully playable on mobile devices in the local network,
+allowing players to join battles from their smartphones and tablets.
+
+[Cursor] Fix mobile controls visibility and touch handling
+
+This commit addresses issues with mobile controls not being visible or functional on mobile devices:
+
+1. Improved Mobile Detection:
+   - Enhanced device detection algorithm with multiple checks
+   - Added user agent pattern matching for more reliable detection
+   - Added touch screen capability detection
+   - Added screen size detection with more appropriate thresholds
+   - Added detailed logging of detection results for debugging
+
+2. Fixed CSS Visibility Issues:
+   - Increased z-index values to ensure controls appear above game elements
+   - Made buttons larger and more visible with stronger colors
+   - Added drop shadows for better contrast against game background
+   - Increased border thickness and opacity for better visibility
+   - Improved text readability with larger font sizes and text shadows
+
+3. Enhanced Touch Event Handling:
+   - Added { passive: false } option to touch event listeners
+   - Added mouse event handlers for testing on desktop
+   - Added comprehensive logging for touch/mouse events
+   - Fixed event propagation issues with proper preventDefault() calls
+   - Added visual feedback for button presses with stronger active states
+
+4. Added Debug Information:
+   - Added development-only debug overlay showing device information
+   - Added console logging throughout the mobile controls lifecycle
+   - Added detailed logging of component mounting and event binding
+   - Added reference validation to catch potential null references
+   - Improved error handling with descriptive warning messages
+
+These changes ensure that mobile controls are properly displayed and functional
+on mobile devices, making the game fully playable on smartphones and tablets
+in the local network.
+
+[Cursor] Fix spawn position issues and add spawn protection
+
+This commit addresses issues with player ships spawning too close to each other, 
+particularly noticeable on mobile devices:
+
+1. Improved Spawn Position Logic:
+   - Added getSafeSpawnPosition function on the server to find safe spawn locations
+   - Implemented minimum safe distance (300 units) between spawning ships
+   - Added fallback to corner positions if no safe position can be found
+   - Kept ships away from world edges to prevent spawning in corners
+   - Added detailed logging of spawn positions for debugging
+
+2. Added Spawn Protection:
+   - Implemented 3-second spawn protection period for all ships
+   - Prevented collisions between ships during spawn protection
+   - Added spawn protection timer that resets on respawn
+   - Added protection for both ships in a potential collision
+   - Added logging of spawn protection activation and expiration
+
+3. Improved Client-Server Synchronization:
+   - Updated client to properly handle initial position from server
+   - Fixed position synchronization in the gameState event handler
+   - Added proper position handling in respawnAccepted event
+   - Ensured spawn protection is reset when ships respawn
+   - Added consistent position logging across client and server
+
+4. Enhanced Mobile Experience:
+   - Fixed specific issues affecting iPad and other mobile devices
+   - Prevented immediate collisions on game start
+   - Improved initial camera positioning for better orientation
+   - Added more detailed debug information for mobile devices
+   - Maintained compatibility with existing touch controls
+
+These changes ensure that players have a better experience when joining the game,
+especially on mobile devices, by preventing frustrating collisions immediately
+after spawning and providing time to orient themselves before becoming vulnerable.
+
+[Cursor] Implement device connection management and inactive player cleanup
+
+This commit adds robust device connection management to ensure only one active connection per device and implements automatic cleanup of inactive players:
+
+1. Device Connection Management:
+   - Added device ID tracking using localStorage on the client
+   - Implemented device identification on connection
+   - Added logic to detect and handle multiple connections from the same device
+   - Force disconnection of previous sessions when a new one connects
+   - Alert users when they're disconnected due to a new session
+
+2. Inactive Player Cleanup:
+   - Added timestamp tracking for all player activities
+   - Implemented a heartbeat system to keep connections alive
+   - Added periodic cleanup of players inactive for more than 5 minutes
+   - Properly removed device connections when players disconnect
+
+3. Technical Improvements:
+   - Refactored connection handling for better reliability
+   - Added detailed logging for connection events
+   - Improved error handling for socket connections
+   - Used UUID for more reliable device identification
+   - Added proper cleanup of resources on disconnection
+
+These changes ensure that only active players remain in the game, preventing "ghost" players and improving overall game performance and user experience.
+
+[Cursor] Fix multiplayer synchronization and collision detection
+
+This commit addresses several critical issues with the multiplayer functionality:
+
+1. Fixed position synchronization between clients:
+   - Enhanced playerMoved event handler to explicitly update sprite positions
+   - Increased position update frequency for smoother movement
+   - Added detailed logging for position updates
+
+2. Improved collision detection:
+   - Enhanced projectile collision detection with larger hit boxes
+   - Fixed damage reporting and handling between clients
+   - Added comprehensive error handling for network events
+
+3. Added debugging tools:
+   - Created debug functions for testing collision and damage
+   - Added detailed logging throughout the networking code
+   - Enhanced the debug button to run all diagnostic tests
+
+These changes ensure that player positions are properly synchronized and
+projectiles correctly generate hit events when colliding with ships. 

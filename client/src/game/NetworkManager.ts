@@ -292,20 +292,44 @@ export class NetworkManager {
     
     // Handle player movement
     this.socket.on('playerMoved', (data: { id: string, x: number, y: number, rotation: number }) => {
-      const ship = this.players.get(data.id);
-      if (ship) {
-        // Log position updates for debugging
-        console.log(`Received position update for ${ship.playerName}: x=${Math.round(data.x)}, y=${Math.round(data.y)}, rot=${data.rotation.toFixed(2)}`);
-        
-        // Update ship position and rotation
-        ship.x = data.x;
-        ship.y = data.y;
-        ship.rotation = data.rotation;
-        
-        // Explicitly update sprite position
-        ship.updateSpritePosition();
-      } else {
-        console.warn(`Received position update for unknown player: ${data.id}`);
+      try {
+        const ship = this.players.get(data.id);
+        if (ship) {
+          // Log position updates for debugging (only occasionally to avoid console spam)
+          if (Math.random() < 0.05) { // Log only 5% of updates
+            console.log(`Received position update for ${ship.playerName}: x=${Math.round(data.x)}, y=${Math.round(data.y)}, rot=${data.rotation.toFixed(2)}`);
+          }
+          
+          // Update ship position and rotation
+          ship.x = data.x;
+          ship.y = data.y;
+          ship.rotation = data.rotation;
+          
+          // Explicitly update sprite position
+          ship.updateSpritePosition();
+          
+          // Ensure sprite is visible
+          if (!ship.sprite.visible && ship.sprite.parent) {
+            console.log(`Making sprite visible for player ${ship.playerName}`);
+            ship.sprite.visible = true;
+          }
+          
+          // Ensure name container is visible
+          if ((ship as any).nameContainer && !(ship as any).nameContainer.visible && (ship as any).nameContainer.parent) {
+            console.log(`Making name container visible for player ${ship.playerName}`);
+            (ship as any).nameContainer.visible = true;
+          }
+        } else {
+          console.warn(`Received position update for unknown player: ${data.id}`);
+          
+          // Request game state to sync missing players
+          if (this.socket && this.socket.connected) {
+            console.log('Requesting game state to sync missing players');
+            this.socket.emit('requestGameState');
+          }
+        }
+      } catch (error) {
+        console.error('Error handling player movement:', error);
       }
     });
     
@@ -459,7 +483,34 @@ export class NetworkManager {
     try {
       // Skip if player already exists
       if (this.players.has(player.id)) {
-        console.log(`Player ${player.name} (${player.id}) already exists, skipping`);
+        console.log(`Player ${player.name} (${player.id}) already exists, updating position`);
+        
+        // Update existing player's position
+        const existingShip = this.players.get(player.id);
+        if (existingShip) {
+          existingShip.x = player.x;
+          existingShip.y = player.y;
+          existingShip.rotation = player.rotation;
+          existingShip.hull = player.hull;
+          
+          // Ensure sprite is visible
+          if (!existingShip.sprite.visible && existingShip.sprite.parent) {
+            console.log(`Making sprite visible for existing player ${existingShip.playerName}`);
+            existingShip.sprite.visible = true;
+          }
+          
+          // Ensure name container is visible
+          if ((existingShip as any).nameContainer && 
+              !(existingShip as any).nameContainer.visible && 
+              (existingShip as any).nameContainer.parent) {
+            console.log(`Making name container visible for existing player ${existingShip.playerName}`);
+            (existingShip as any).nameContainer.visible = true;
+          }
+          
+          // Update sprite position
+          existingShip.updateSpritePosition();
+        }
+        
         return;
       }
       
@@ -497,6 +548,18 @@ export class NetworkManager {
         console.warn(`Name container not found for player ${player.name}`);
       }
       
+      // Ensure sprite is visible
+      if (!ship.sprite.visible) {
+        console.log(`Making sprite visible for new player ${ship.playerName}`);
+        ship.sprite.visible = true;
+      }
+      
+      // Ensure name container is visible
+      if ((ship as any).nameContainer && !(ship as any).nameContainer.visible) {
+        console.log(`Making name container visible for new player ${ship.playerName}`);
+        (ship as any).nameContainer.visible = true;
+      }
+      
       // Add the ship to the players map
       this.players.set(player.id, ship);
       
@@ -511,6 +574,9 @@ export class NetworkManager {
       if (typeof ship.resetSpawnProtection === 'function') {
         ship.resetSpawnProtection();
       }
+      
+      // Force update sprite position
+      ship.updateSpritePosition();
     } catch (error) {
       console.error('Error adding player:', error);
     }
@@ -856,6 +922,19 @@ export class NetworkManager {
       console.log('--- End of Collision Detection Test ---');
     } catch (error) {
       console.error('Error in debugTestCollision:', error);
+    }
+  }
+
+  /**
+   * Request the current game state from the server
+   * This can be used to resynchronize when players are missing
+   */
+  public requestGameState(): void {
+    if (this.socket && this.socket.connected) {
+      console.log('Manually requesting game state from server');
+      this.socket.emit('requestGameState');
+    } else {
+      console.warn('Cannot request game state: not connected to server');
     }
   }
 } 

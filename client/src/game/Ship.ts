@@ -326,24 +326,6 @@ export class Ship {
         break;
     }
     
-    // Add highlight for other players (not local player)
-    if (this.playerId !== 'local' && this.playerId !== networkManagerRef?.getPlayerId()) {
-      const highlight = new PIXI.Graphics();
-      highlight.beginFill(0xFFFFFF, 0.3);
-      highlight.drawCircle(0, 0, this.collisionRadius * 1.5);
-      highlight.endFill();
-      
-      // Add pulsing animation
-      const pulseAnimation = () => {
-        highlight.scale.x = 1 + Math.sin(Date.now() / 300) * 0.2;
-        highlight.scale.y = highlight.scale.x;
-        requestAnimationFrame(pulseAnimation);
-      };
-      pulseAnimation();
-      
-      container.addChild(highlight as unknown as PIXI.DisplayObject);
-    }
-    
     // Add ship graphics to container
     container.addChild(shipGraphics as unknown as PIXI.DisplayObject);
     

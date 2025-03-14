@@ -16,7 +16,7 @@ Leveling System: New players start with a small ship and gain experience through
 
 Realistic Naval Combat: The game includes momentum-based movement and limited acceleration.
 
-Varied Arsenal: Players use cannons, torpedoes, and rockets, each with distinct tactical advantages.
+Varied Arsenal: Players use cannons, torpedoes, and missiles, each with distinct tactical advantages.
 
 Leaderboards and Achievements: Players compete for high scores based on kills, survival time, and collected wreckage.
 
@@ -68,13 +68,12 @@ Momentum and Inertia: Ships accelerate and decelerate gradually, making navigati
 
 Turning Speed Based on Ship Size: Larger ships turn slower but have greater stability.
 
-Speed Zones: Areas with currents that affect movement.
 
 Combat System
 
 Cannons: Short to medium range, high damage, but slower reload time.
 
-Rockets: Medium range, lock-on required, medium damage, can be countered with flares (future feature).
+Surface to Air Missiles: Medium range, lock-on required, medium damage, can be countered with flares (future feature).
 
 Torpedoes: Slow but devastating, ideal for large ships, can be avoided with quick maneuvers.
 

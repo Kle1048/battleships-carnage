@@ -102,6 +102,14 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - When using seaborn styles in matplotlib, use 'seaborn-v0_8' instead of 'seaborn' as the style name due to recent seaborn version changes
 - Use 'gpt-4o' as the model name for OpenAI's GPT-4 with vision capabilities
 - When searching for recent news, use the current year (2025) instead of previous years, or simply use the "recent" keyword to get the latest information
+- When implementing Socket.IO connections, use proper reconnection handling with appropriate timeouts and error logging
+- For device identification, use UUID for more reliable unique identifiers instead of Math.random()
+- Store device IDs in localStorage for persistence across page reloads
+- Implement heartbeat mechanisms to detect and clean up inactive connections
+- When working with PIXI.js, wait for display objects to be properly initialized before accessing their transform property, use requestAnimationFrame for initial position setting, and add safety checks
+- Always validate player existence before accessing player data in Socket.IO event handlers to prevent server crashes
+- Add try-catch blocks around cleanup processes to ensure server stability
+- Include detailed error logging to help diagnose issues in production
 
 # Scratchpad
 
@@ -113,35 +121,57 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - Ships can be upgraded through combat and collecting wreckage
 - Realistic naval physics with momentum-based movement
 
-### Current Task: Add Enemy Indicator Arrow
+### Current Task: Code Cleanup Recommendations
 
-#### Features Implemented
-[X] Create a small arrow that points towards the nearest enemy
-[X] Calculate the nearest enemy ship dynamically
-[X] Rotate the arrow to point in the correct direction
-[X] Position the arrow at a fixed distance from the player ship
-[X] Update the arrow position and rotation in real-time
+#### Areas to Clean Up
 
-#### Implementation Details
-1. Added a new PIXI.Graphics object for the arrow indicator
-   - Created a red arrow with white border for visibility
-   - Arrow is positioned at a fixed distance from the player ship
-2. Created a function to find the nearest enemy ship
-   - Calculates distance to all ships in the game
-   - Skips player's own ship and destroyed ships
-   - Returns the closest enemy ship
-3. Implemented real-time updates for the arrow
-   - Calculates angle between player and nearest enemy
-   - Updates arrow rotation to point towards the enemy
-   - Hides the arrow when no enemies are found
+1. **Debug Functions and UI**
+   - Remove debug button and related UI elements
+   - Remove or disable debug logging in production
+   - Remove debug functions that are only used during development:
+     - `debugCheckPlayerVisibility()`
+     - `debugDamageSynchronization()`
+     - `debugTestCollision()`
+   - Remove periodic debug checks in the game loop
 
-### Progress on Combat System
+2. **Visual Effects Simplification**
+   - Consider simplifying or making optional:
+     - Ship highlighting effect for other players
+     - Explosion effects
+     - Firing effects
+     - Water splash effects
+   - These effects add visual appeal but increase code complexity
+
+3. **UI Simplification**
+   - Player List:
+     - Consider making this optional or toggled via settings
+     - Simplify the UI to just show player count
+   - Color Picker:
+     - Consider moving to a settings menu rather than in-game
+     - Simplify color options to reduce complexity
+
+4. **Enemy Indicator**
+   - Consider making this optional via settings
+   - Simplify the drawing code
+
+5. **Logging and Error Handling**
+   - Reduce verbose logging in production
+   - Consolidate error handling to be more consistent
+
+#### Implementation Priority
 [X] Phase 1: Project Setup & Basic Game Engine
 [X] Phase 2: Ship Movement & Controls
-[WIP] Phase 3: Combat System
+[X] Phase 3: Combat System
 [X] Phase 4: Multiplayer Integration
 [ ] Phase 5: Progression System
 [ ] Phase 6: Polish & Optimization
+
+### Previous Tasks Completed
+[X] Device Connection Management
+[X] Inactive Player Cleanup
+[X] Fix Ship Name Display
+[X] Fix Multiplayer Synchronization
+[X] Fix Collision Detection
 
 ### Weapon Systems Tasks
 [X] Design weapon types (cannons, torpedoes)

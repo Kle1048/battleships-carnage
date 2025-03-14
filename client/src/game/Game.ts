@@ -3,12 +3,14 @@ import { Ship, ThrottleSetting, RudderSetting, setNetworkManagerRef, WeaponType,
 import { InputHandler } from './InputHandler';
 import { NetworkManager } from './NetworkManager';
 import { Projectile, ProjectileType } from './Projectile';
+import { NetworkDebug } from './NetworkDebug';
 
 // Game state
 let app: PIXI.Application;
 let playerShip: Ship;
 let inputHandler: InputHandler;
 let networkManager: NetworkManager;
+let networkDebug: NetworkDebug;
 let gameLoop: (delta: number) => void;
 let statusText: PIXI.Text;
 let controlsText: PIXI.Text;
@@ -56,13 +58,31 @@ let playerListVisible: boolean = true;
 let playerListToggleButton: PIXI.Graphics;
 let playerListToggleText: PIXI.Text;
 
-// Add debug button
-let debugButton: PIXI.Graphics;
-let debugButtonText: PIXI.Text;
-
 // Add position update counter
 let positionUpdateCounter: number = 0;
-const POSITION_UPDATE_INTERVAL: number = 3; // Send position updates every 3 frames
+const POSITION_UPDATE_INTERVAL: number = 1; // Send position updates every frame (was 3)
+
+// Add sync button
+let syncButton: PIXI.Graphics;
+let syncButtonText: PIXI.Text;
+
+// Add debug key handler
+document.addEventListener('keydown', (e) => {
+  // Press F2 to toggle network debug
+  if (e.key === 'F2' && networkDebug) {
+    networkDebug.toggle();
+  }
+  
+  // Press F3 to force visibility check
+  if (e.key === 'F3' && networkDebug) {
+    networkDebug.checkVisibility();
+  }
+  
+  // Press F4 to force reconnection
+  if (e.key === 'F4' && networkDebug) {
+    networkDebug.forceReconnect();
+  }
+});
 
 export function initGame(pixiApp: PIXI.Application): InputHandler {
   app = pixiApp;
@@ -103,18 +123,31 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
   enemyIndicator.visible = false;
   gameWorld.addChild(enemyIndicator as any);
   
+  // Create network manager
+  networkManager = new NetworkManager(gameWorld);
+  
+  // Create network debug utility
+  networkDebug = new NetworkDebug(app, networkManager);
+  
+  // Set network manager reference in Ship class
+  setNetworkManagerRef(networkManager);
+  
   // Create player ship
   createPlayerShip(gameWorld);
+  
+  // Set local player in network manager
+  networkManager.setLocalPlayer(playerShip);
+  
+  // Set local player ID in network debug once it's available
+  setTimeout(() => {
+    networkDebug.setLocalPlayerId(networkManager.getPlayerId());
+  }, 2000);
   
   // Set up camera to follow player
   setupCamera(gameWorld);
   
   // Set up input handler
   inputHandler = new InputHandler();
-  
-  // Set up network manager
-  networkManager = new NetworkManager(gameWorld);
-  networkManager.setLocalPlayer(playerShip);
   
   // Set up projectile callback
   networkManager.setProjectileCallback((projectile: Projectile) => {
@@ -142,9 +175,6 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
       console.error('Error handling network projectile:', error);
     }
   });
-  
-  // Set network manager reference in Ship class
-  setNetworkManagerRef(networkManager);
   
   // Create UI container (fixed to screen, not affected by camera)
   const uiContainer = new PIXI.Container();
@@ -295,8 +325,8 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
   
   // Create toggle button for player list
   playerListToggleButton = new PIXI.Graphics();
-  playerListToggleButton.beginFill(0x0077be);
-  playerListToggleButton.drawRoundedRect(0, 0, 30, 30, 5);
+  playerListToggleButton.beginFill(0x333333);
+  playerListToggleButton.drawRect(0, 0, 30, 30);
   playerListToggleButton.endFill();
   playerListToggleButton.position.set(20, 70);
   playerListToggleButton.interactive = true;
@@ -318,36 +348,8 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
   // Add click event to toggle button
   playerListToggleButton.on('pointerdown', togglePlayerList);
   
-  // Create debug button
-  debugButton = new PIXI.Graphics();
-  debugButton.beginFill(0xFF0000, 0.7);
-  debugButton.drawRoundedRect(0, 0, 30, 30, 5);
-  debugButton.endFill();
-  debugButton.position.set(60, 70);
-  debugButton.interactive = true;
-  debugButton.cursor = 'pointer';
-  uiContainer.addChild(debugButton as unknown as PIXI.DisplayObject);
-  
-  // Create debug button text
-  debugButtonText = new PIXI.Text('D', {
-    fontFamily: 'Arial',
-    fontSize: 16,
-    fontWeight: 'bold',
-    fill: 0xFFFFFF,
-    align: 'center'
-  });
-  debugButtonText.anchor.set(0.5);
-  debugButtonText.position.set(debugButton.x + 15, debugButton.y + 15);
-  uiContainer.addChild(debugButtonText as unknown as PIXI.DisplayObject);
-  
-  // Add click event to debug button
-  debugButton.on('pointerdown', () => {
-    console.log('Debug button clicked');
-    networkManager.debugCheckPlayerVisibility();
-    networkManager.debugDamageSynchronization();
-    networkManager.debugTestCollision();
-    showNotification('Running debug checks...', 2000);
-  });
+  // Create sync button
+  createSyncButton(uiContainer);
   
   // Set up game loop
   gameLoop = (delta: number) => {
@@ -405,17 +407,11 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
     // Update enemy indicator
     updateEnemyIndicator();
     
-    // Update player list every 30 frames (about 0.5 seconds)
-    frameCounter++;
-    if (frameCounter % 30 === 0) {
-      updatePlayerList();
-    }
+    // Update network debug display
+    networkDebug.update();
     
-    // Run debug check every 5 seconds (300 frames at 60fps)
-    if (frameCounter % 300 === 0) {
-      networkManager.debugCheckPlayerVisibility();
-      networkManager.debugDamageSynchronization();
-    }
+    // Increment frame counter
+    frameCounter++;
   };
   
   // Start the game loop
@@ -1434,10 +1430,10 @@ window.addEventListener('resize', () => {
       playerListToggleText.position.set(playerListToggleButton.x + 15, playerListToggleButton.y + 15);
     }
     
-    // Update debug button position
-    if (debugButton && debugButtonText) {
-      debugButton.position.set(60, 70);
-      debugButtonText.position.set(debugButton.x + 15, debugButton.y + 15);
+    // Update sync button position
+    if (syncButton && syncButtonText) {
+      syncButton.position.set(60, 70);
+      syncButtonText.position.set(syncButton.x + 15, syncButton.y + 15);
     }
   }
 });
@@ -1501,4 +1497,37 @@ function updatePlayerList(): void {
   playerListBackground.beginFill(0x000000, 0.6);
   playerListBackground.drawRect(0, 0, width, playerListText.height + padding);
   playerListBackground.endFill();
+}
+
+// Add createSyncButton function
+function createSyncButton(uiContainer: PIXI.Container): void {
+  // Create sync button
+  syncButton = new PIXI.Graphics();
+  syncButton.beginFill(0x333333);
+  syncButton.drawRect(0, 0, 30, 30);
+  syncButton.endFill();
+  syncButton.position.set(60, 70); // Position it next to the player list toggle button
+  syncButton.interactive = true;
+  syncButton.cursor = 'pointer';
+  uiContainer.addChild(syncButton as unknown as PIXI.DisplayObject);
+  
+  // Create sync button text
+  syncButtonText = new PIXI.Text('S', {
+    fontFamily: 'Arial',
+    fontSize: 16,
+    fontWeight: 'bold',
+    fill: 0xFFFFFF,
+    align: 'center'
+  });
+  syncButtonText.anchor.set(0.5);
+  syncButtonText.position.set(syncButton.x + 15, syncButton.y + 15);
+  uiContainer.addChild(syncButtonText as unknown as PIXI.DisplayObject);
+  
+  // Add click event to sync button
+  syncButton.on('pointerdown', () => {
+    if (networkManager) {
+      showNotification('Requesting game state synchronization...', 2000);
+      networkManager.requestGameState();
+    }
+  });
 } 
