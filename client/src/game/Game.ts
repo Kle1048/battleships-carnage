@@ -63,10 +63,21 @@ let playerListToggleText: PIXI.Text;
 let positionUpdateCounter: number = 0;
 const POSITION_UPDATE_INTERVAL: number = 1; // Send position updates every frame (was 3)
 
+// Expose game instance globally for other modules to access
+let game: any = null;
+(window as any).game = {};
+
 export function initGame(pixiApp: PIXI.Application): InputHandler {
   app = pixiApp;
   isGameOver = false;
   projectiles = [];
+  
+  // Initialize game object
+  game = {
+    createFiringEffect,
+    createWaterSplashEffect
+  };
+  (window as any).game = game;
   
   // Check if running on mobile device
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -131,6 +142,8 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
   // Set up projectile callback
   networkManager.setProjectileCallback((projectile: Projectile) => {
     try {
+      Logger.info('Game', `Adding network projectile: ${projectile.id}, type: ${projectile.type}, sourceId: ${projectile.sourceId}`);
+      
       // Add projectile to the game
       projectiles.push(projectile);
       
@@ -146,12 +159,12 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
           projectile.type
         );
         
-        console.log('Network projectile added successfully:', projectile.id);
+        Logger.debug('Game', `Network projectile added successfully: ${projectile.id}`);
       } else {
-        console.error('Failed to add network projectile: sprite is null');
+        Logger.error('Game', 'Failed to add network projectile: sprite is null');
       }
     } catch (error) {
-      console.error('Error handling network projectile:', error);
+      Logger.error('Game', `Error handling network projectile: ${error}`);
     }
   });
   
@@ -335,11 +348,27 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
       return;
     }
     
+    // Ensure playerShip exists before doing any player-related updates
+    if (!playerShip) {
+      // Log the issue - this should not happen in normal gameplay
+      Logger.warn('Game', 'playerShip is null in gameLoop!');
+      
+      // Still update UI elements that don't depend on playerShip
+      updateConnectionStatus();
+      inputHandler.update();
+      networkDebug.update();
+      return;
+    }
+    
     // Handle ship controls with the new control scheme
     handleShipControls();
     
-    // Update ship position
-    playerShip.update(delta);
+    // Update ship position - requires both playerShip and its sprite
+    if (playerShip.sprite) {
+      playerShip.update(delta);
+    } else {
+      Logger.warn('Game', 'playerShip.sprite is null in gameLoop!');
+    }
     
     // Check for collisions
     checkCollisions();
@@ -353,8 +382,10 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
     updateShipStatusText();
     updateHealthBar();
     
-    // Check if player ship is destroyed
-    if (playerShip && !playerShip.sprite.visible) {
+    // Check if player ship is destroyed - handle both cases:
+    // 1. When sprite is null (completely destroyed)
+    // 2. When sprite exists but is not visible
+    if ((playerShip.sprite === null) || (playerShip.sprite && !playerShip.sprite.visible) || playerShip.hull <= 0) {
       showGameOver();
     }
     
@@ -392,6 +423,19 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
   
   // Start the game loop
   app.ticker.add(gameLoop);
+  
+  // Add event listener for hull changes
+  window.addEventListener('playerHealthChanged', (e: Event) => {
+    try {
+      const event = e as CustomEvent;
+      Logger.info('Game', `Health change event received: ${event.detail.current}/${event.detail.max}`);
+      
+      // Force health bar update
+      updateHealthBar();
+    } catch (error) {
+      Logger.error('Game.healthChangeEvent', error);
+    }
+  });
   
   // Return the input handler so it can be used by the mobile controls
   return inputHandler;
@@ -539,10 +583,20 @@ function rejoinGame(): void {
   // Request a new ship from the server
   networkManager.requestRespawn();
   
-  // Reset player ship
+  // Reset player ship health
   playerShip.hull = playerShip.maxHull;
-  playerShip.sprite.visible = true;
-  playerShip.updateDamageAppearance();
+  
+  // Get reference to the game world container
+  const gameWorld = app.stage.getChildAt(0) as PIXI.Container;
+  
+  // Recreate ship sprite using the new method
+  playerShip.recreateShipSprite();
+  gameWorld.addChild(playerShip.sprite as unknown as PIXI.DisplayObject);
+  
+  // Add name container to game world
+  if ((playerShip as any).nameContainer) {
+    gameWorld.addChild((playerShip as any).nameContainer as unknown as PIXI.DisplayObject);
+  }
   
   // Reset ship position to a random location
   playerShip.x = Math.random() * WORLD_SIZE;
@@ -554,6 +608,13 @@ function rejoinGame(): void {
   
   // Update sprite position
   playerShip.updateSpritePosition();
+  
+  // Reset spawn protection
+  if (typeof playerShip.resetSpawnProtection === 'function') {
+    playerShip.resetSpawnProtection();
+  }
+  
+  console.log('Ship rejoined successfully, sprite recreated');
 }
 
 function handleShipControls(): void {
@@ -682,6 +743,12 @@ function updateControlsText(): void {
 }
 
 function updateShipStatusText(): void {
+  // Check if playerShip exists
+  if (!playerShip) {
+    shipStatusText.text = 'Ship Status: N/A';
+    return;
+  }
+  
   // Show current throttle and rudder settings
   let throttleText = '';
   switch (playerShip.throttle) {
@@ -769,6 +836,9 @@ function setupCamera(gameWorld: PIXI.Container): void {
 }
 
 function updateCamera(gameWorld: PIXI.Container): void {
+  // Make sure playerShip exists
+  if (!playerShip) return;
+  
   // Smoothly follow the player
   const targetX = app.screen.width / 2 - playerShip.x;
   const targetY = app.screen.height / 2 - playerShip.y;
@@ -788,6 +858,11 @@ function checkCollisions(): void {
   for (let i = 0; i < ships.length; i++) {
     const shipA = ships[i];
     
+    // Skip if ship is null, destroyed, or sprite is not available
+    if (!shipA || !shipA.sprite) {
+      continue;
+    }
+    
     // Skip if ship is not visible (destroyed)
     if (!shipA.sprite.visible) {
       continue;
@@ -800,6 +875,11 @@ function checkCollisions(): void {
       }
       
       const shipB = ships[j];
+      
+      // Skip if ship is null, destroyed, or sprite is not available
+      if (!shipB || !shipB.sprite) {
+        continue;
+      }
       
       // Skip if ship is not visible (destroyed)
       if (!shipB.sprite.visible) {
@@ -830,7 +910,7 @@ function checkCollisions(): void {
 /**
  * Show damage indicator when player takes damage
  */
-function showDamageIndicator(): void {
+export function showDamageIndicator(): void {
   // Show damage indicator
   damageIndicator.text = 'COLLISION!';
   damageIndicator.visible = true;
@@ -842,30 +922,56 @@ function showDamageIndicator(): void {
 }
 
 /**
- * Update the health bar based on player ship hull
+ * Update health bar to show current hull status
  */
 function updateHealthBar(): void {
-  // Calculate health percentage
-  const healthPercent = playerShip.hull / playerShip.maxHull;
-  
-  // Update health bar width
-  healthBar.clear();
-  
-  // Choose color based on health percentage
-  let color = 0x00FF00; // Green
-  if (healthPercent < 0.3) {
-    color = 0xFF0000; // Red
-  } else if (healthPercent < 0.6) {
-    color = 0xFFFF00; // Yellow
+  try {
+    if (!playerShip) return;
+    
+    // Get current hull percentage, clamped between 0 and 1
+    const hullPercentage = Math.max(0, Math.min(1, playerShip.hull / playerShip.maxHull));
+    
+    // Update health bar
+    if (healthBar) {
+      // Clear previous graphics
+      healthBar.clear();
+      
+      // Draw health bar based on hull percentage
+      if (hullPercentage > 0.7) {
+        // Green for high health
+        healthBar.beginFill(0x00FF00);
+      } else if (hullPercentage > 0.3) {
+        // Yellow for medium health
+        healthBar.beginFill(0xFFFF00);
+      } else {
+        // Red for low health
+        healthBar.beginFill(0xFF0000);
+      }
+      
+      // Draw bar
+      const barWidth = 200 * hullPercentage;
+      healthBar.drawRect(0, 0, barWidth, 20);
+      healthBar.endFill();
+      
+      Logger.debug('Game', `Updated health bar: ${playerShip.hull}/${playerShip.maxHull} (${(hullPercentage * 100).toFixed(1)}%)`);
+    }
+    
+    // Update ship status text
+    if (shipStatusText) {
+      shipStatusText.text = `Hull: ${Math.ceil(playerShip.hull)}/${playerShip.maxHull} (${(hullPercentage * 100).toFixed(0)}%)`;
+      
+      // Set color based on hull percentage
+      if (hullPercentage > 0.7) {
+        shipStatusText.style.fill = 0x00FF00;
+      } else if (hullPercentage > 0.3) {
+        shipStatusText.style.fill = 0xFFFF00;
+      } else {
+        shipStatusText.style.fill = 0xFF0000;
+      }
+    }
+  } catch (error) {
+    Logger.error('Game.updateHealthBar', error);
   }
-  
-  healthBar.beginFill(color);
-  healthBar.drawRect(0, 0, 200 * healthPercent, 15);
-  healthBar.endFill();
-  
-  // Reposition health bar if window is resized
-  healthBar.position.set(app.screen.width / 2 - 100, 50);
-  healthBarBg.position.set(app.screen.width / 2 - 100, 50);
 }
 
 function handleWeaponControls(): void {
@@ -978,11 +1084,11 @@ function firePlayerWeapon(weaponType: WeaponType): void {
       try {
         // Create the projectile with proper error handling
         const projectile = new Projectile(
+          weaponProps.type,
           spawnPos.x,
           spawnPos.y,
           finalAngle, // Use the calculated angle to mouse
-          weaponProps.type,
-          playerShip
+          playerShip.id
         );
         
         // Add projectile to the game
@@ -1011,31 +1117,78 @@ function firePlayerWeapon(weaponType: WeaponType): void {
   }
 }
 
-function createFiringEffect(x: number, y: number, rotation: number, type: ProjectileType): void {
+// Export the createFiringEffect function for the Ship class to use
+export function createFiringEffect(x: number, y: number, rotation: number, type: ProjectileType): void {
   try {
     // Create a simple muzzle flash effect
     const flash = new PIXI.Graphics();
     
     if (type === ProjectileType.CANNON_BALL) {
-      // Cannon flash
+      // Cannon flash - larger and brighter
       flash.beginFill(0xffaa00, 0.8);
-      flash.drawCircle(0, 0, 10);
-      flash.endFill();
-    } else {
-      // Torpedo launch splash
-      flash.beginFill(0xaaaaaa, 0.6);
       flash.drawCircle(0, 0, 15);
       flash.endFill();
+      
+      // Add inner brighter core
+      flash.beginFill(0xffffff, 0.9);
+      flash.drawCircle(0, 0, 8);
+      flash.endFill();
+      
+      // Add rays/streaks from the muzzle flash for visual impact
+      const rayCount = 6;
+      const rayLength = 20;
+      flash.lineStyle(2, 0xffdd00, 0.7);
+      
+      for (let i = 0; i < rayCount; i++) {
+        const rayAngle = (i / rayCount) * Math.PI * 2 + Math.random() * 0.3;
+        const rayX = Math.cos(rayAngle) * rayLength;
+        const rayY = Math.sin(rayAngle) * rayLength;
+        flash.moveTo(0, 0);
+        flash.lineTo(rayX, rayY);
+      }
+    } else {
+      // Torpedo launch splash - softer and more diffuse
+      flash.beginFill(0xaaaaaa, 0.6);
+      flash.drawCircle(0, 0, 20);
+      flash.endFill();
+      
+      // Add water ripple effect
+      flash.lineStyle(3, 0xffffff, 0.5);
+      flash.drawCircle(0, 0, 25);
+      
+      // Add bubbles
+      for (let i = 0; i < 5; i++) {
+        const bubbleSize = 3 + Math.random() * 5;
+        const distance = 15 + Math.random() * 15;
+        const angle = Math.random() * Math.PI * 2;
+        
+        flash.beginFill(0xffffff, 0.6);
+        flash.drawCircle(
+          Math.cos(angle) * distance,
+          Math.sin(angle) * distance,
+          bubbleSize
+        );
+        flash.endFill();
+      }
     }
     
     flash.x = x;
     flash.y = y;
     
-    projectilesContainer.addChild(flash as any);
+    // Apply a slight rotation to the flash for better visual alignment with the ship
+    flash.rotation = rotation;
+    
+    // Add to container
+    if (projectilesContainer) {
+      projectilesContainer.addChild(flash as any);
+    } else {
+      Logger.warn('Game', 'Cannot add firing effect: projectilesContainer is null');
+      return;
+    }
     
     // Check if app and ticker are available
     if (!app || !app.ticker) {
-      console.warn('Cannot animate flash: app.ticker is null. Using setTimeout fallback.');
+      Logger.warn('Game', 'Cannot animate flash: app.ticker is null. Using setTimeout fallback.');
       
       // Fallback to setTimeout for animation if ticker is not available
       let lifetime = 10;
@@ -1055,10 +1208,18 @@ function createFiringEffect(x: number, y: number, rotation: number, type: Projec
     }
     
     // Animate the flash using ticker if available
-    let lifetime = 10;
+    let lifetime = 12; // Slightly longer lifetime for better visibility
+    let scale = 1.0;
+    
     const flashUpdate = () => {
       lifetime--;
-      flash.alpha = lifetime / 10;
+      flash.alpha = lifetime / 12;
+      
+      // Add slight expansion to the flash as it fades
+      if (lifetime > 8) {
+        scale += 0.05;
+        flash.scale.set(scale);
+      }
       
       if (lifetime <= 0) {
         if (flash.parent) {
@@ -1070,49 +1231,73 @@ function createFiringEffect(x: number, y: number, rotation: number, type: Projec
     
     app.ticker.add(flashUpdate);
   } catch (error) {
-    console.error('Error creating firing effect:', error);
+    Logger.error('Game', `Error creating firing effect: ${error}`);
   }
 }
 
 function updateProjectiles(): void {
-  // Update each projectile and remove expired ones
-  for (let i = projectiles.length - 1; i >= 0; i--) {
-    try {
+  try {
+    // Update projectiles and remove expired ones
+    for (let i = projectiles.length - 1; i >= 0; i--) {
       const projectile = projectiles[i];
       
+      // Skip if projectile is invalid or undefined
       if (!projectile) {
-        console.warn('Undefined projectile found at index', i);
+        Logger.warn('Game', 'Found invalid projectile during update');
         projectiles.splice(i, 1);
         continue;
       }
       
-      // Update projectile
-      const active = projectile.update();
-      
-      // Remove if no longer active
-      if (!active) {
-        try {
-          // Create splash effect where the projectile ended
-          createWaterSplashEffect(projectile.x, projectile.y);
+      // Try-catch for individual projectile updates to prevent one bad projectile from breaking the whole update
+      try {
+        // Update projectile and check if it should be removed
+        if (!projectile.update()) {
+          // Create water splash effect at projectile's current position if it reached max range
+          if (projectile.distanceTraveled >= projectile.maxRange) {
+            createWaterSplashEffect(projectile.x, projectile.y);
+          }
           
-          // Destroy and remove projectile
+          // Ensure projectile sprite is removed from container
+          if (projectile.sprite && projectile.sprite.parent) {
+            projectile.sprite.parent.removeChild(projectile.sprite as any);
+            Logger.debug('Game', `Removed projectile sprite for ${projectile.id} from parent container`);
+          } else {
+            Logger.warn('Game', `Could not remove projectile sprite for ${projectile.id}: sprite or parent is null`);
+          }
+          
+          // Destroy projectile
           projectile.destroy();
-        } catch (innerError) {
-          console.error('Error cleaning up projectile:', innerError);
-        } finally {
-          // Always remove the projectile from the array
+          
+          // Remove from array
           projectiles.splice(i, 1);
+          
+          Logger.debug('Game', `Projectile removed: ${projectile.id}, ${projectiles.length} projectiles remaining`);
         }
+      } catch (error) {
+        // Log error and remove problematic projectile
+        Logger.error('Game', `Error updating projectile: ${error}`);
+        
+        // Safety cleanup of problematic projectile
+        if (projectile && projectile.sprite && projectile.sprite.parent) {
+          projectile.sprite.parent.removeChild(projectile.sprite as any);
+        }
+        
+        // Remove from array
+        projectiles.splice(i, 1);
       }
-    } catch (error) {
-      console.error('Error in updateProjectiles:', error);
-      // Remove problematic projectile
-      projectiles.splice(i, 1);
     }
+    
+    // Debug log - occasionally show number of active projectiles
+    if (Math.random() < 0.01) {
+      Logger.debug('Game', `Active projectiles: ${projectiles.length}`);
+    }
+  } catch (error) {
+    Logger.error('Game', `Error in updateProjectiles: ${error}`);
   }
 }
 
-function createWaterSplashEffect(x: number, y: number): void {
+// Also export createWaterSplashEffect for use by other modules
+export function createWaterSplashEffect(x: number, y: number): void {
   // Create a water splash effect
   const splash = new PIXI.Graphics();
   
@@ -1151,41 +1336,102 @@ function createWaterSplashEffect(x: number, y: number): void {
 }
 
 function checkProjectileCollisions(): void {
-  // Get all ships from network manager
-  const ships = networkManager.getAllShips();
-  
-  // Check each projectile against each ship
-  for (let i = projectiles.length - 1; i >= 0; i--) {
-    const projectile = projectiles[i];
+  try {
+    // Get all ships from network manager
+    const ships = networkManager.getAllShips();
     
-    for (const ship of ships) {
-      // Skip if ship is the source of the projectile
-      if (ship.id === projectile.sourceId) continue;
+    // Exit early if no ships are available
+    if (!ships || ships.length === 0) {
+      return;
+    }
+    
+    // Print ship count occasionally for debugging
+    if (Math.random() < 0.01) {
+      Logger.debug('Game', `Checking projectile collisions against ${ships.length} ships`);
+    }
+    
+    // Check each projectile against each ship
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const projectile = projectiles[i];
       
-      // Check collision
-      if (projectile.checkCollision(ship)) {
-        // Only report damage to server, don't apply locally
-        // The server will broadcast the damage and all clients will apply it consistently
-        if (projectile.sourceShip === playerShip) {
-          networkManager.reportDamage(ship.id, projectile.damage);
+      // Skip if projectile is invalid or undefined
+      if (!projectile) {
+        Logger.warn('Game', 'Found invalid projectile during collision check');
+        projectiles.splice(i, 1);
+        continue;
+      }
+      
+      let hitDetected = false;
+      
+      for (const ship of ships) {
+        // Skip if ship is null, doesn't exist, or is the source of the projectile
+        if (!ship || ship.id === projectile.sourceId) continue;
+        
+        // Skip ships that have been destroyed (hull <= 0 or sprite is null)
+        if (ship.hull <= 0 || !ship.sprite) continue;
+        
+        // Check collision
+        if (projectile.checkCollision(ship)) {
+          hitDetected = true;
           
-          // Create visual effect for hit, but don't apply damage
+          // Get the local player ID directly from network manager
+          const localPlayerId = networkManager.getPlayerId();
+          
+          // Check if this is the local player's ship being hit
+          const targetIsLocalPlayer = ship.id === localPlayerId || ship.id === 'local';
+          
+          // Check if this is the local player's projectile hitting another ship
+          const sourceIsLocalPlayer = projectile.sourceId === localPlayerId;
+          
+          Logger.info('Game', `Projectile ${projectile.id} hit ship ${ship.id} (${ship.playerName}). Local player is source: ${sourceIsLocalPlayer}, local player is target: ${targetIsLocalPlayer}`);
+          
+          // For local player's ship hit by any projectile:
+          // Apply damage locally and update hull status to server like in ship collisions
+          if (targetIsLocalPlayer) {
+            // Apply damage directly to the local ship
+            Logger.info('Game', `Local player hit by projectile. Applying ${projectile.damage} damage locally.`);
+            ship.takeDamage(projectile.damage);
+            // Hull update is already sent to server in ship.takeDamage() method
+          }
+          // For local player's projectile hitting another ship:
+          // Report damage to server for the other ship
+          else if (sourceIsLocalPlayer) {
+            // Report damage to server for the other ship
+            Logger.debug('Game', `Local player's projectile hit ${ship.id} (${ship.playerName}). Reporting ${projectile.damage} damage.`);
+            networkManager.reportDamage(ship.id, projectile.damage);
+          }
+          
+          // Always create visual effect for hit
           projectile.createHitEffect();
+          
+          // Show damage indicator if player ship was hit
+          if (targetIsLocalPlayer) {
+            showDamageIndicator();
+          }
+          
+          break; // Break out of the inner loop since this projectile hit something
+        }
+      }
+      
+      // Remove projectile if it hit something
+      if (hitDetected) {
+        // Remove projectile sprite from container
+        if (projectile.sprite && projectile.sprite.parent) {
+          projectile.sprite.parent.removeChild(projectile.sprite as any);
+          Logger.debug('Game', `Removed projectile sprite for ${projectile.id} from parent container`);
+        } else {
+          Logger.warn('Game', `Could not remove projectile sprite for ${projectile.id}: sprite or parent is null`);
         }
         
-        // Remove projectile
+        // Destroy and remove projectile
         projectile.destroy();
         projectiles.splice(i, 1);
         
-        // Show damage indicator if player ship was hit
-        if (ship === playerShip) {
-          showDamageIndicator();
-        }
-        
-        // Break out of the inner loop since this projectile is now destroyed
-        break;
+        Logger.debug('Game', `Removed projectile after hit: ${projectiles.length} projectiles remaining`);
       }
     }
+  } catch (error) {
+    Logger.error('Game', `Error in checkProjectileCollisions: ${error}`);
   }
 }
 
@@ -1268,11 +1514,14 @@ function findNearestEnemyShip(): Ship | null {
   let minDistance = Number.MAX_VALUE;
   
   for (const ship of ships) {
+    // Skip if ship is null or undefined
+    if (!ship) continue;
+    
     // Skip player's own ship
     if (ship === playerShip) continue;
     
-    // Skip destroyed ships
-    if (ship.hull <= 0) continue;
+    // Skip destroyed ships or ships with no sprite
+    if (ship.hull <= 0 || !ship.sprite) continue;
     
     // Calculate distance
     const dx = ship.x - playerShip.x;

@@ -2,7 +2,7 @@ import * as PIXI from 'pixi.js';
 import { io, Socket } from 'socket.io-client';
 import { Ship } from './Ship';
 import { Projectile, ProjectileType } from './Projectile';
-import { showNotification } from './Game';
+import { showNotification, showDamageIndicator } from './Game';
 import * as Logger from '../utils/Logger';
 
 // Import ShipType from Ship.ts
@@ -17,6 +17,7 @@ interface Player {
   hull: number;
   deviceId?: string;
   name: string;
+  color: number;
 }
 
 interface ProjectileData {
@@ -26,6 +27,7 @@ interface ProjectileData {
   rotation: number;
   type: ProjectileType;
   sourceId: string;
+  spawnTimestamp: number;
 }
 
 interface GameState {
@@ -331,6 +333,12 @@ export class NetworkManager {
       setTimeout(() => {
         console.log('DEBUG: Checking player visibility after 1 second');
         this.players.forEach((ship, id) => {
+          // Add null check for ship.sprite
+          if (!ship.sprite) {
+            console.warn(`Player ${ship.playerName} (${id}): sprite is null!`);
+            return;
+          }
+          
           const isVisible = ship.sprite.visible;
           const hasParent = !!ship.sprite.parent;
           const position = { x: ship.x, y: ship.y };
@@ -376,8 +384,8 @@ export class NetworkManager {
           ship.updateSpritePosition();
           
           // Ensure sprite is visible
-          if (!ship.sprite.visible && ship.sprite.parent) {
-            console.log(`Making sprite visible for player ${ship.playerName}`);
+          if (ship.sprite && !ship.sprite.visible && ship.sprite.parent) {
+            console.log(`Making ${ship.playerName}'s ship visible again`);
             ship.sprite.visible = true;
           }
           
@@ -426,61 +434,144 @@ export class NetworkManager {
     });
     
     // Handle ship damage
-    this.socket.on('shipDamaged', (data: { id: string, hull: number }) => {
+    this.socket.on('shipDamaged', (data: { id: string, hull: number, sourceId: string, damage: number, timestamp: number }) => {
       try {
-        console.log('Ship damaged event received from server:', data);
-        const ship = this.players.get(data.id);
-        if (ship) {
-          console.log(`Applying damage to ship ${ship.playerName} (${data.id}): hull=${ship.hull} -> ${data.hull}`);
-          
-          // Update hull value
-          ship.hull = data.hull;
-          
-          // Create damage effect
-          ship.createCollisionEffect();
-          
-          // Update ship appearance
-          ship.updateDamageAppearance();
-          
-          // Show notification if it's the local player
-          if (data.id === this.playerId) {
-            showNotification(`Your ship was hit! Hull: ${data.hull}`, 2000);
-          }
+        Logger.info('NetworkManager', `Ship damaged event received from server: targetId=${data.id}, hull=${data.hull}, sourceId=${data.sourceId}, damage=${data.damage}`);
+        
+        // Find the target ship
+        const targetShip = this.players.get(data.id);
+        if (!targetShip) {
+          Logger.warn('NetworkManager', `Received damage for unknown ship: ${data.id}`);
+          // Request game state to sync players if we're missing someone
+          this.requestGameState();
+          return;
+        }
+        
+        // Get the source ship (attacker)
+        const sourceShip = this.players.get(data.sourceId);
+        const sourceName = sourceShip ? sourceShip.playerName : 'Unknown ship';
+        
+        // Use the new setHull method to ensure proper update
+        if (typeof targetShip.setHull === 'function') {
+          // Use the setHull method that handles appearance updates
+          targetShip.setHull(data.hull);
+          Logger.info('NetworkManager', `Used setHull to update ${targetShip.playerName}'s hull to ${data.hull}`);
         } else {
-          console.warn(`Received damage for unknown ship: ${data.id}`);
+          // Fallback to direct property update
+          const oldHull = targetShip.hull;
+          targetShip.hull = data.hull;
+          Logger.info('NetworkManager', `Directly set ${targetShip.playerName}'s hull from ${oldHull} to ${data.hull}`);
+          targetShip.updateDamageAppearance();
+        }
+        
+        // Create damage effect
+        targetShip.createCollisionEffect();
+        
+        // If this is the local player, ensure consistency
+        if (data.id === this.playerId && this.localPlayer) {
+          if (typeof this.localPlayer.setHull === 'function') {
+            this.localPlayer.setHull(data.hull);
+          } else {
+            this.localPlayer.hull = data.hull;
+            this.localPlayer.updateDamageAppearance();
+          }
+          
+          // Show damage indicator
+          showDamageIndicator();
+        }
+        
+        // Show notification if it's the local player being hit
+        if (data.id === this.playerId) {
+          showNotification(`You were hit by ${sourceName} for ${data.damage} damage! Hull: ${data.hull}`, 2000);
+        }
+        
+        // Show notification if the local player did the damage
+        else if (data.sourceId === this.playerId) {
+          showNotification(`Hit ${targetShip.playerName} for ${data.damage} damage! Enemy hull: ${data.hull}`, 2000);
         }
       } catch (error) {
-        console.error('Error handling shipDamaged event:', error);
+        Logger.error('NetworkManager.shipDamaged', error);
       }
     });
     
-    // Handle ship destruction
-    this.socket.on('shipDestroyed', (data: { id: string }) => {
+    // Handle ship hit notifications (used for visual effects only, not hull update)
+    this.socket.on('shipHit', (data: { id: string, sourceId: string, damage: number, timestamp: number }) => {
       try {
-        console.log('Ship destroyed event received from server:', data);
-        const ship = this.players.get(data.id);
-        if (ship) {
-          // Show different notifications based on whether it's the local player or not
-          if (data.id === this.playerId) {
-            showNotification(`Your ship was destroyed!`, 5000);
-            // Game over handling is done elsewhere
-          } else {
-            showNotification(`${ship.playerName}'s ship was destroyed!`, 3000);
-          }
-          
-          // Create explosion effect and destroy the ship
-          ship.createExplosionEffect();
-          ship.destroy();
-          
-          // Remove from players map if it's not the local player
-          if (data.id !== this.playerId) {
-            this.players.delete(data.id);
-          }
-        } else {
-          console.warn(`Received destruction event for unknown ship: ${data.id}`);
+        // Find the target ship
+        const targetShip = this.players.get(data.id);
+        if (!targetShip) {
+          Logger.warn('NetworkManager', `Received hit notification for unknown ship: ${data.id}`);
+          return;
+        }
+        
+        // Find the source ship
+        const sourceShip = this.players.get(data.sourceId);
+        const sourceName = sourceShip ? sourceShip.playerName : 'Unknown ship';
+        
+        Logger.info('NetworkManager', `Ship hit notification: ${sourceName} hit ${targetShip.playerName} for ${data.damage} damage`);
+        
+        // Only create visual effects - we don't modify hull here
+        // as it should already be handled by direct player updates
+        targetShip.createCollisionEffect();
+        
+        // The actual hull update should come through the standard playerUpdate system
+        // directly from the target player client
+      } catch (error) {
+        Logger.error('NetworkManager.shipHit', error);
+      }
+    });
+    
+    // Handle damage confirmation (received by the attacker)
+    this.socket.on('damageConfirmed', (data: { targetId: string, newHull: number, damage: number, timestamp: number }) => {
+      try {
+        // Find the target ship
+        const targetShip = this.players.get(data.targetId);
+        if (!targetShip) {
+          Logger.warn('NetworkManager', `Received damage confirmation for unknown ship: ${data.targetId}`);
+          return;
+        }
+        
+        Logger.info('NetworkManager', `Damage confirmation received for ${targetShip.playerName}: hull=${data.newHull}, damage=${data.damage}`);
+        
+        // Ensure our local representation matches the server
+        if (targetShip.hull !== data.newHull) {
+          Logger.info('NetworkManager', `Correcting hull value for ${targetShip.playerName} from ${targetShip.hull} to ${data.newHull}`);
+          targetShip.hull = data.newHull;
+          targetShip.updateDamageAppearance();
         }
       } catch (error) {
-        console.error('Error handling shipDestroyed event:', error);
+        Logger.error('NetworkManager.damageConfirmed', error);
+      }
+    });
+    
+    // Handle ship destroyed
+    this.socket.on('shipDestroyed', (data: { id: string, destroyedBy: string, destroyerName: string }) => {
+      try {
+        Logger.info('NetworkManager', `Ship destroyed event received: ${data.id}`);
+        const ship = this.players.get(data.id);
+        if (ship) {
+          // Set hull to 0 and destroy the ship
+          ship.hull = 0;
+          
+          // Call destroy to properly handle ship destruction
+          ship.destroy();
+          
+          // Create a bigger explosion effect after destroy
+          ship.createExplosionEffect(3.0);
+          
+          // Show notification based on who was destroyed
+          if (data.id === this.playerId) {
+            showNotification(`You were destroyed by ${data.destroyerName}!`, 5000);
+          } else if (data.destroyedBy === this.playerId) {
+            showNotification(`You destroyed ${ship.playerName}!`, 5000);
+          } else {
+            showNotification(`${ship.playerName} was destroyed by ${data.destroyerName}`, 3000);
+          }
+        } else {
+          Logger.warn('NetworkManager', `Received destroyed event for unknown ship: ${data.id}`);
+        }
+      } catch (error) {
+        Logger.error('NetworkManager.shipDestroyed', error);
       }
     });
     
@@ -494,7 +585,19 @@ export class NetworkManager {
         ship.x = player.x;
         ship.y = player.y;
         ship.hull = player.hull;
-        ship.sprite.visible = true;
+        
+        // Check if sprite exists before accessing its properties
+        if (ship.sprite) {
+          ship.sprite.visible = true;
+        } else {
+          Logger.warn('NetworkManager', `Cannot set ship.sprite.visible: sprite is null for ${ship.playerName}`);
+          // Recreate sprite if it doesn't exist
+          ship.sprite = ship.createShipSprite();
+          if (this.gameContainer) {
+            this.gameContainer.addChild(ship.sprite as unknown as PIXI.DisplayObject);
+            Logger.info('NetworkManager', `Recreated sprite for respawned ship: ${ship.playerName}`);
+          }
+        }
         
         // Reset ship appearance
         ship.updateDamageAppearance();
@@ -518,15 +621,22 @@ export class NetworkManager {
           this.localPlayer.type = player.type as ShipType;
           
           // Recreate sprite with new ship type
-          if (this.localPlayer.sprite.parent) {
+          if (this.localPlayer.sprite && this.localPlayer.sprite.parent) {
             this.localPlayer.sprite.parent.removeChild(this.localPlayer.sprite as any);
           }
           this.localPlayer.sprite = this.localPlayer.createShipSprite();
           this.gameContainer.addChild(this.localPlayer.sprite as any);
+        } else if (!this.localPlayer.sprite) {
+          // If sprite doesn't exist, recreate it
+          Logger.info('NetworkManager', `Recreating missing sprite for local player on respawn`);
+          this.localPlayer.sprite = this.localPlayer.createShipSprite();
+          this.gameContainer.addChild(this.localPlayer.sprite as any);
         }
         
-        // Make ship visible again
-        this.localPlayer.sprite.visible = true;
+        // Make ship visible again (if sprite exists)
+        if (this.localPlayer.sprite) {
+          this.localPlayer.sprite.visible = true;
+        }
         
         // Reset appearance
         this.localPlayer.updateDamageAppearance();
@@ -541,8 +651,20 @@ export class NetworkManager {
     
     // Handle projectile fired by other players
     this.socket.on('projectileFired', (projectileData: ProjectileData) => {
-      console.log('Projectile fired by another player:', projectileData);
-      this.handleProjectileFromServer(projectileData);
+      try {
+        // Skip our own projectiles that we already have locally
+        if (projectileData.sourceId === this.playerId) {
+          Logger.debug('NetworkManager', `Ignoring our own projectile broadcast: ${projectileData.id}`);
+          return;
+        }
+        
+        Logger.info('NetworkManager', `Received projectile from another player: ${projectileData.id}, type: ${projectileData.type}`);
+        
+        // Make sure we process this projectile immediately
+        this.handleProjectileFromServer(projectileData);
+      } catch (error) {
+        Logger.error('NetworkManager.projectileFired', error);
+      }
     });
 
     // Handle force disconnect (e.g., when kicked by admin)
@@ -568,6 +690,92 @@ export class NetworkManager {
         window.location.reload();
       }, 3000);
     });
+
+    // Handle player update
+    this.socket.on('playerUpdate', (data: {
+      id: string, 
+      x: number, 
+      y: number, 
+      rotation: number, 
+      type?: ShipType,
+      hull?: number,
+      color?: number
+    }) => {
+      try {
+        const ship = this.players.get(data.id);
+        if (ship) {
+          // Update position
+          ship.x = data.x;
+          ship.y = data.y;
+          ship.rotation = data.rotation;
+          
+          // Check if sprite needs to be recreated (if it was destroyed)
+          if (ship.sprite === null) {
+            Logger.info('NetworkManager', `Recreating sprite for player ${ship.playerName} during playerUpdate`);
+            ship.recreateShipSprite();
+            this.gameContainer.addChild(ship.sprite as unknown as PIXI.DisplayObject);
+            
+            // Add name container back to game world
+            if ((ship as any).nameContainer) {
+              this.gameContainer.addChild((ship as any).nameContainer as unknown as PIXI.DisplayObject);
+            }
+          }
+          
+          // Update hull if provided using setHull method for better consistency
+          if (typeof data.hull === 'number') {
+            if (typeof ship.setHull === 'function') {
+              ship.setHull(data.hull);
+              Logger.debug('NetworkManager', `Updated ${ship.playerName}'s hull to ${data.hull} via playerUpdate`);
+            } else {
+              // If setHull is not available, fall back to direct update
+              ship.hull = data.hull;
+              ship.updateDamageAppearance();
+              Logger.debug('NetworkManager', `Set ${ship.playerName}'s hull to ${data.hull} directly via playerUpdate`);
+            }
+          }
+          
+          // Update type if provided and different
+          if (data.type && ship.type !== data.type) {
+            ship.type = data.type;
+            
+            // Recreate sprite with new ship type
+            if (ship.sprite.parent) {
+              ship.sprite.parent.removeChild(ship.sprite as any);
+            }
+            ship.sprite = ship.createShipSprite();
+            this.gameContainer.addChild(ship.sprite as any);
+          }
+          
+          // Update color if provided
+          if (typeof data.color === 'number' && ship.color !== data.color) {
+            Logger.info('NetworkManager', `Updating ship color for ${ship.playerName}: ${ship.color} -> ${data.color}`);
+            ship.updateColor(data.color);
+          }
+          
+          // Update sprite position
+          ship.updateSpritePosition();
+          
+          // Handle our own player specially to ensure consistency
+          if (data.id === this.playerId && this.localPlayer) {
+            // Important: Apply all updates from server to local player to keep in sync
+            if (typeof data.hull === 'number') {
+              if (typeof this.localPlayer.setHull === 'function') {
+                this.localPlayer.setHull(data.hull);
+              } else {
+                this.localPlayer.hull = data.hull;
+                this.localPlayer.updateDamageAppearance();
+              }
+            }
+          }
+        } else {
+          // If we don't have this player, request game state
+          Logger.warn('NetworkManager', `Received update for unknown player: ${data.id}`);
+          this.requestGameState();
+        }
+      } catch (error) {
+        Logger.error('NetworkManager.playerUpdate', error);
+      }
+    });
   }
 
   private addPlayer(player: Player): void {
@@ -584,18 +792,36 @@ export class NetworkManager {
           existingShip.rotation = player.rotation;
           existingShip.hull = player.hull;
           
-          // Ensure sprite is visible
-          if (!existingShip.sprite.visible && existingShip.sprite.parent) {
-            console.log(`Making sprite visible for existing player ${existingShip.playerName}`);
-            existingShip.sprite.visible = true;
+          // Check if sprite needs to be recreated (if it was destroyed and is now null)
+          if (!existingShip.sprite) {
+            Logger.info('NetworkManager', `Recreating sprite for existing player ${existingShip.playerName} who rejoined`);
+            
+            // Recreate the ship sprite and name display
+            existingShip.recreateShipSprite();
+            this.gameContainer.addChild(existingShip.sprite as unknown as PIXI.DisplayObject);
+            
+            // Add name container back to game world
+            if ((existingShip as any).nameContainer) {
+              this.gameContainer.addChild((existingShip as any).nameContainer as unknown as PIXI.DisplayObject);
+            }
+          } else {
+            // Ensure sprite and name display are visible (they might have been hidden)
+            if (existingShip.sprite) {
+              existingShip.sprite.visible = true;
+            }
+            
+            if ((existingShip as any).nameContainer) {
+              (existingShip as any).nameContainer.visible = true;
+            }
           }
           
-          // Ensure name container is visible
-          if ((existingShip as any).nameContainer && 
-              !(existingShip as any).nameContainer.visible && 
-              (existingShip as any).nameContainer.parent) {
-            console.log(`Making name container visible for existing player ${existingShip.playerName}`);
-            (existingShip as any).nameContainer.visible = true;
+          // Update damage appearance based on hull value
+          existingShip.updateDamageAppearance();
+          
+          // Update color if provided
+          if (typeof player.color === 'number' && existingShip.color !== player.color) {
+            Logger.info('NetworkManager', `Updating ship color for ${existingShip.playerName}: ${existingShip.color} -> ${player.color}`);
+            existingShip.updateColor(player.color);
           }
           
           // Update sprite position
@@ -612,20 +838,26 @@ export class NetworkManager {
         type: player.type
       });
       
-      // Create a new ship for the player
+      // Create ship object
       const ship = new Ship({
         x: player.x,
         y: player.y,
         rotation: player.rotation,
         speed: 0,
-        maxSpeed: 5,
-        acceleration: 0.1,
-        rotationSpeed: 0.05,
-        hull: player.hull,
-        type: player.type as any,
+        maxSpeed: 2,
+        acceleration: 0.05,
+        rotationSpeed: 0.04,
+        hull: player.hull || 100,
+        type: player.type as ShipType,
         playerId: player.id,
-        playerName: player.name
+        playerName: player.name || `Player ${player.id}`
       });
+      
+      // Update ship color if provided by the server
+      if (typeof player.color === 'number') {
+        Logger.info('NetworkManager', `Setting ship color for ${player.name} to ${player.color}`);
+        ship.updateColor(player.color);
+      }
       
       // Add the ship to the game container
       this.gameContainer.addChild(ship.sprite as unknown as PIXI.DisplayObject);
@@ -640,8 +872,8 @@ export class NetworkManager {
       }
       
       // Ensure sprite is visible
-      if (!ship.sprite.visible) {
-        console.log(`Making sprite visible for new player ${ship.playerName}`);
+      if (ship.sprite && !ship.sprite.visible) {
+        console.log(`Making ${ship.playerName}'s ship visible in addOrUpdateOtherPlayer`);
         ship.sprite.visible = true;
       }
       
@@ -744,26 +976,44 @@ export class NetworkManager {
   public reportDamage(targetId: string, amount: number): void {
     try {
       if (!this.socket) {
-        console.error('Cannot report damage: socket is null');
+        Logger.error('NetworkManager', 'Cannot report damage: socket is null');
         return;
       }
       
       if (this.connectionStatus !== 'connected') {
-        console.error(`Cannot report damage: not connected to server (status: ${this.connectionStatus})`);
+        Logger.error('NetworkManager', `Cannot report damage: not connected to server (status: ${this.connectionStatus})`);
         return;
       }
       
-      console.log(`Sending damage report to server: targetId=${targetId}, amount=${amount}`);
+      if (!targetId) {
+        Logger.error('NetworkManager', `Cannot report damage: invalid targetId: ${targetId}`);
+        return;
+      }
       
-      this.socket.emit('damageShip', {
+      if (!amount || amount <= 0) {
+        Logger.error('NetworkManager', `Cannot report damage: invalid amount: ${amount}`);
+        return;
+      }
+      
+      // Get target ship for logging purposes
+      const targetShip = this.players.get(targetId);
+      const targetName = targetShip ? targetShip.playerName : 'unknown';
+      
+      Logger.info('NetworkManager', `Sending damage report to server: targetId=${targetId} (${targetName}), amount=${amount}`);
+      
+      // Add source ID explicitly to make debugging easier
+      const damageData = {
         targetId,
-        amount
-      });
+        amount,
+        sourceId: this.playerId // Include source ID explicitly to help with debugging
+      };
       
-      // Log the event for debugging
-      console.log(`Damage report sent successfully`);
+      // Send the damage report to the server
+      this.socket.emit('damageShip', damageData);
+      
+      Logger.debug('NetworkManager', `Damage report sent. Waiting for server confirmation.`);
     } catch (error) {
-      console.error('Error reporting damage:', error);
+      Logger.error('NetworkManager.reportDamage', error);
     }
   }
 
@@ -796,22 +1046,41 @@ export class NetworkManager {
   
   // Handle projectile from server
   private handleProjectileFromServer(projectileData: ProjectileData): void {
-    // Skip if we already have this projectile
-    if (this.projectiles.has(projectileData.id)) {
-      return;
-    }
-    
-    // Create projectile
-    const projectile = Projectile.deserialize(projectileData, this.players);
-    
-    if (projectile) {
-      // Add to our map
-      this.projectiles.set(projectile.id, projectile);
-      
-      // Call the callback if set
-      if (this.onProjectileCreated) {
-        this.onProjectileCreated(projectile);
+    try {
+      // Skip if we already have this projectile
+      if (this.projectiles.has(projectileData.id)) {
+        Logger.debug('NetworkManager', `Skipping duplicate projectile: ${projectileData.id}`);
+        return;
       }
+      
+      Logger.info('NetworkManager', `Handling projectile from server: ${projectileData.id}, type: ${projectileData.type}, sourceId: ${projectileData.sourceId}`);
+      
+      // Check if source ship exists
+      const sourceShip = this.players.get(projectileData.sourceId);
+      if (!sourceShip) {
+        Logger.warn('NetworkManager', `Source ship not found for projectile: ${projectileData.sourceId}`);
+        // We'll continue anyway and let the deserialize method handle this
+      }
+      
+      // Create projectile
+      const projectile = Projectile.deserialize(projectileData);
+      
+      if (projectile) {
+        // Add to our map
+        this.projectiles.set(projectile.id, projectile);
+        
+        // Call the callback if set
+        if (this.onProjectileCreated) {
+          Logger.debug('NetworkManager', `Calling projectile creation callback for: ${projectile.id}`);
+          this.onProjectileCreated(projectile);
+        } else {
+          Logger.error('NetworkManager', 'Projectile creation callback is not set!');
+        }
+      } else {
+        Logger.error('NetworkManager', `Failed to deserialize projectile: ${JSON.stringify(projectileData)}`);
+      }
+    } catch (error) {
+      Logger.error('NetworkManager.handleProjectileFromServer', error);
     }
   }
 
@@ -888,5 +1157,116 @@ export class NetworkManager {
     // Add validation based on your game world boundaries
     // For now, just basic validation to prevent NaN and Infinity
     return Number.isFinite(x) && Number.isFinite(y);
+  }
+
+  /**
+   * Send player update to server
+   */
+  public sendPlayerUpdate(additionalData: any = {}): void {
+    try {
+      if (!this.socket) {
+        Logger.warn('NetworkManager', 'Cannot send update: socket is null');
+        return;
+      }
+      
+      if (this.connectionStatus !== 'connected') {
+        Logger.warn('NetworkManager', `Cannot send update: not connected to server (status: ${this.connectionStatus})`);
+        return;
+      }
+
+      if (!this.localPlayer) {
+        Logger.error('NetworkManager', 'Local player is null or undefined');
+        return;
+      }
+      
+      // Build update data
+      const updateData = {
+        x: this.localPlayer.x,
+        y: this.localPlayer.y,
+        rotation: this.localPlayer.rotation,
+        type: this.localPlayer.type,
+        hull: this.localPlayer.hull,
+        color: this.localPlayer.color,
+        ...additionalData
+      };
+      
+      // Send update
+      this.socket.emit('playerUpdate', updateData);
+    } catch (error) {
+      Logger.error('NetworkManager.sendPlayerUpdate', error);
+    }
+  }
+
+  /**
+   * Update player position, rotation, etc.
+   */
+  private updatePlayer(data: any): void {
+    try {
+      // Check if we have this player
+      if (this.players.has(data.id)) {
+        const ship = this.players.get(data.id);
+        
+        if (ship) {
+          // Update ship attributes
+          ship.x = data.x;
+          ship.y = data.y;
+          ship.rotation = data.rotation;
+          
+          // Update hull if provided
+          if (typeof data.hull === 'number') {
+            if (typeof ship.setHull === 'function') {
+              ship.setHull(data.hull);
+            } else {
+              ship.hull = data.hull;
+              ship.updateDamageAppearance();
+            }
+          }
+          
+          // Check if sprite needs to be recreated (if it was destroyed)
+          if (ship.sprite === null) {
+            Logger.info('NetworkManager', `Recreating sprite for player ${ship.playerName} during update`);
+            ship.recreateShipSprite();
+            this.gameContainer.addChild(ship.sprite as unknown as PIXI.DisplayObject);
+            
+            // Add name container back to game world
+            if ((ship as any).nameContainer) {
+              this.gameContainer.addChild((ship as any).nameContainer as unknown as PIXI.DisplayObject);
+            }
+          }
+          
+          // Update color if provided
+          if (typeof data.color === 'number' && ship.color !== data.color) {
+            Logger.info('NetworkManager', `Updating ship color for ${ship.playerName}: ${ship.color} -> ${data.color}`);
+            ship.updateColor(data.color);
+          }
+          
+          // Update sprite position
+          ship.updateSpritePosition();
+          
+          // Handle our own player specially to ensure consistency
+          if (data.id === this.playerId && this.localPlayer) {
+            // Important: Apply all updates from server to local player to keep in sync
+            if (typeof data.hull === 'number') {
+              if (typeof this.localPlayer.setHull === 'function') {
+                this.localPlayer.setHull(data.hull);
+              } else {
+                this.localPlayer.hull = data.hull;
+                this.localPlayer.updateDamageAppearance();
+              }
+            }
+          }
+        } else {
+          // If we don't have this player, request game state
+          Logger.warn('NetworkManager', `Received update for unknown player: ${data.id}`);
+          this.requestGameState();
+        }
+      } else {
+        // If we don't have this player, request game state
+        Logger.warn('NetworkManager', `Received update for unknown player: ${data.id}`);
+        this.requestGameState();
+      }
+    } catch (error) {
+      Logger.error('NetworkManager.updatePlayer', error);
+    }
   }
 } 

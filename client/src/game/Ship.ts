@@ -1,5 +1,7 @@
 import * as PIXI from 'pixi.js';
-import { ProjectileType } from './Projectile';
+import { ProjectileType, Projectile } from './Projectile';
+import * as Logger from '../utils/Logger';
+import { VISUAL_EFFECTS } from '../config/GameConfig';
 
 // Global reference to the NetworkManager for damage reporting
 let networkManagerRef: any = null;
@@ -10,7 +12,7 @@ export function setNetworkManagerRef(networkManager: any): void {
 }
 
 // Ship types
-type ShipType = 'destroyer' | 'cruiser' | 'battleship';
+export type ShipType = 'destroyer' | 'cruiser' | 'battleship';
 
 // Throttle settings
 export enum ThrottleSetting {
@@ -290,6 +292,12 @@ export class Ship {
     if (this.playerId === 'local') {
       Ship.userSelectedColor = newColor;
       localStorage.setItem('shipColor', newColor.toString());
+      
+      // Send color update to server if network manager is available
+      if (networkManagerRef && typeof networkManagerRef.sendPlayerUpdate === 'function') {
+        Logger.info('Ship', `Sending color update to server: ${newColor}`);
+        networkManagerRef.sendPlayerUpdate({ color: newColor });
+      }
     }
     
     // Update ship appearance
@@ -553,15 +561,18 @@ export class Ship {
     const relativeSpeed = Math.abs(this.speed - otherShip.speed);
     const thisImpactForce = Math.max(relativeSpeed * this.collisionDamageMultiplier, 0.5);
     
-    console.log(`Collision: ${this.id} hit ${otherShip.id}`);
-    console.log(`Damage amount: ${Math.ceil(thisImpactForce * 10)}, Impact force: ${thisImpactForce}`);
+    Logger.info('Ship', `Collision: ${this.playerName} (${this.id}) hit ${otherShip.playerName} (${otherShip.id})`);
+    Logger.debug('Ship', `Damage amount: ${Math.ceil(thisImpactForce * 10)}, Impact force: ${thisImpactForce}`);
     
     // Always apply at least some damage on collision
     const actualDamage = Math.max(Math.ceil(thisImpactForce * 10), 5);
+    
+    // Apply damage to this ship
     this.takeDamage(actualDamage);
     
-    // Report damage to the server if this is the local player
+    // If this is the local player, report damage to the server for the other ship
     if (this.id === 'local' && networkManagerRef && otherShip.id !== 'local') {
+      Logger.info('Ship', `Reporting collision damage to server: targetId=${otherShip.id}, amount=${actualDamage}`);
       networkManagerRef.reportDamage(otherShip.id, actualDamage);
     }
     
@@ -577,44 +588,18 @@ export class Ship {
     // Calculate overlap (how much ships are intersecting)
     const overlap = (this.collisionRadius + otherShip.collisionRadius) - distance;
     
-    if (overlap > 0) {
-      // Move ships apart to prevent overlap (immediate separation)
-      const separationFactor = overlap / 2; // Split the separation evenly
-      this.x += nx * separationFactor;
-      this.y += ny * separationFactor;
+    // If we're the local ship, adjust our position to prevent overlap
+    // This is done only on the local player to avoid desync with server positions
+    if (this.id === 'local') {
+      // Move this ship away from the other ship to prevent overlap
+      this.x += nx * overlap * 0.5;
+      this.y += ny * overlap * 0.5;
       
-      // Calculate bounce effect (light bounce)
-      const bounceFactor = 0.3; // Lower value = lighter bounce
-      
-      // Apply bounce based on relative mass (ship type)
-      const thisBounceMass = this.type === 'destroyer' ? 1 : 
-                            this.type === 'cruiser' ? 1.5 : 2;
-      const otherBounceMass = otherShip.type === 'destroyer' ? 1 : 
-                             otherShip.type === 'cruiser' ? 1.5 : 2;
-      
-      // Calculate bounce velocity components
-      const bounceVx = (this.speed * Math.cos(this.rotation) - otherShip.speed * Math.cos(otherShip.rotation)) * bounceFactor;
-      const bounceVy = (this.speed * Math.sin(this.rotation) - otherShip.speed * Math.sin(otherShip.rotation)) * bounceFactor;
-      
-      // Apply bounce effect to velocity (scaled by mass ratio)
-      const massRatio = otherBounceMass / (thisBounceMass + otherBounceMass);
-      
-      // Convert bounce velocity to speed and direction
-      const bounceSpeed = Math.sqrt(bounceVx * bounceVx + bounceVy * bounceVy) * massRatio;
-      
-      // Apply a small impulse in the direction away from the collision
-      this.speed -= bounceSpeed * 0.5; // Reduce speed slightly
-      
-      // If ships are moving toward each other, reverse direction slightly
-      const movingToward = (nx * Math.cos(this.rotation) + ny * Math.sin(this.rotation)) < 0;
-      if (movingToward) {
-        // Apply a small impulse in the opposite direction
-        this.speed *= 0.8; // Reduce speed more significantly when head-on
-      }
+      // Apply collision impulse (change in velocity)
+      const impulseMagnitude = thisImpactForce * 0.5; // Scale down for game feel
+      this.velocityX += nx * impulseMagnitude;
+      this.velocityY += ny * impulseMagnitude;
     }
-    
-    // Create collision effect
-    this.createCollisionEffect();
   }
   
   /**
@@ -676,17 +661,90 @@ export class Ship {
   /**
    * Apply damage to the ship
    * @param amount Amount of damage to apply
+   * @returns The new hull value
    */
-  takeDamage(amount: number): void {
-    this.hull -= amount;
-    console.log(`Ship ${this.id} took ${amount} damage. Hull: ${this.hull}/${this.maxHull}`);
+  takeDamage(amount: number): number {
+    try {
+      // Validate input
+      if (typeof amount !== 'number' || amount < 0) {
+        Logger.warn('Ship', `Invalid damage amount: ${amount}`);
+        return this.hull;
+      }
+      
+      // Save old hull value for logging
+      const oldHull = this.hull;
+      
+      // Apply damage
+      this.hull = Math.max(0, this.hull - amount);
+      
+      Logger.info('Ship', `Ship ${this.id} (${this.playerName}) took ${amount} damage. Hull: ${oldHull} -> ${this.hull}/${this.maxHull}`);
+      
+      // Update ship appearance based on damage
+      this.updateDamageAppearance();
+      
+      // Create damage effect
+      this.createCollisionEffect();
+      
+      // Report updated hull value to the network if this is the local player
+      if (this.id === 'local' && networkManagerRef && typeof networkManagerRef.sendPlayerUpdate === 'function') {
+        Logger.info('Ship', `Sending hull update to server: ${this.hull}`);
+        networkManagerRef.sendPlayerUpdate({ hull: this.hull });
+      }
+      
+      // Trigger health change event for UI updates
+      if (this.id === 'local') {
+        const event = new CustomEvent('playerHealthChanged', { 
+          detail: { current: this.hull, max: this.maxHull }
+        });
+        window.dispatchEvent(event);
+      }
+      
+      // Check if ship is destroyed
+      if (this.hull <= 0) {
+        Logger.info('Ship', `Ship ${this.id} (${this.playerName}) was destroyed by damage`);
+        this.hull = 0; // Ensure hull doesn't go below 0
+        this.destroy();
+      }
+      
+      return this.hull;
+    } catch (error) {
+      Logger.error('Ship.takeDamage', error);
+      return this.hull;
+    }
+  }
+  
+  /**
+   * Set the hull value directly and update appearance
+   * Used primarily for server synchronization
+   * @param value New hull value
+   */
+  setHull(value: number): void {
+    if (typeof value !== 'number' || isNaN(value)) {
+      Logger.warn('Ship', `Invalid hull value: ${value}`);
+      return;
+    }
     
-    // Update ship appearance based on damage
-    this.updateDamageAppearance();
+    const oldHull = this.hull;
+    this.hull = Math.max(0, Math.min(value, this.maxHull));
     
-    // Check if ship is destroyed
-    if (this.hull <= 0) {
-      this.destroy();
+    if (oldHull !== this.hull) {
+      Logger.info('Ship', `Hull value set for ${this.playerName}: ${oldHull} -> ${this.hull}`);
+      this.updateDamageAppearance();
+      
+      // Trigger event for UI updates if local player
+      if (this.id === 'local') {
+        const event = new CustomEvent('playerHealthChanged', { 
+          detail: { current: this.hull, max: this.maxHull }
+        });
+        window.dispatchEvent(event);
+      }
+      
+      // If hull is now zero, mark as destroyed
+      if (this.hull <= 0) {
+        this.hull = 0;
+        Logger.info('Ship', `Ship ${this.id} (${this.playerName}) was destroyed by setHull`);
+        this.destroy();
+      }
     }
   }
   
@@ -695,36 +753,154 @@ export class Ship {
    */
   destroy(): void {
     try {
-      console.log(`Ship ${this.id} was destroyed!`);
+      Logger.info('Ship', `Ship ${this.id} (${this.playerName}) was destroyed!`);
       
       // Create explosion effect
       this.createExplosionEffect();
       
       // Hide the ship
-      this.sprite.visible = false;
+      if (this.sprite) {
+        this.sprite.visible = false;
+      }
       
       // Clean up name container
       if (this.nameContainer) {
         if (this.nameText) {
           this.nameContainer.removeChild(this.nameText as unknown as PIXI.DisplayObject);
           this.nameText.destroy();
+          (this as any).nameText = null; // Set to null for easier checking when respawning
         }
         this.nameContainer.destroy();
+        (this as any).nameContainer = null; // Set to null for easier checking when respawning
       }
       
-      this.sprite.destroy();
+      // Destroy sprite
+      if (this.sprite) {
+        this.sprite.destroy();
+        (this as any).sprite = null; // Set to null for easier checking when respawning
+      }
     } catch (error) {
-      console.error('Error destroying ship:', error);
+      Logger.error('Ship.destroy', `Error destroying ship: ${error}`);
     }
   }
   
   /**
    * Create explosion effect when ship is destroyed
+   * @param scale Optional scale factor for the explosion (default: 1.0)
    */
-  createExplosionEffect(): void {
-    // In a real implementation, we would create particle effects
-    // For now, just log a message
-    console.log(`Explosion at ${this.x}, ${this.y}`);
+  createExplosionEffect(scale: number = 1.0): void {
+    try {
+      Logger.info('Ship', `Creating explosion effect at ${this.x}, ${this.y} with scale ${scale}`);
+      
+      // Check if VISUAL_EFFECTS.EXPLOSION_EFFECTS is enabled
+      if (!VISUAL_EFFECTS.EXPLOSION_EFFECTS) {
+        Logger.debug('Ship', 'Explosion effects are disabled in game config');
+        return;
+      }
+      
+      // Find the game container
+      const gameContainer = this.sprite.parent;
+      if (!gameContainer) {
+        Logger.warn('Ship', 'Cannot create explosion: ship sprite has no parent container');
+        return;
+      }
+      
+      // Create explosion parts
+      const explosionParts = 8 + Math.floor(scale * 4); // Number of explosion particles
+      const maxRadius = 20 * scale;
+      const lifespan = 60; // frames
+      
+      // Create a container for all explosion particles
+      const explosionContainer = new PIXI.Container();
+      explosionContainer.x = this.x;
+      explosionContainer.y = this.y;
+      gameContainer.addChild(explosionContainer as any);
+      
+      // Create multiple explosion particles
+      for (let i = 0; i < explosionParts; i++) {
+        // Create a particle
+        const particle = new PIXI.Graphics();
+        
+        // Random color from yellow to red
+        const colorValue = 0xFF0000 + (Math.random() * 0xFFFF00) & 0xFFFF00;
+        
+        // Draw the particle
+        particle.beginFill(colorValue, 0.8);
+        const particleSize = 3 + Math.random() * 7 * scale;
+        particle.drawCircle(0, 0, particleSize);
+        particle.endFill();
+        
+        // Random position within the ship radius
+        const angle = Math.random() * Math.PI * 2;
+        const distance = Math.random() * this.collisionRadius * 0.8;
+        particle.x = Math.cos(angle) * distance;
+        particle.y = Math.sin(angle) * distance;
+        
+        // Random velocity
+        const speed = (1 + Math.random() * 2) * scale;
+        const vx = Math.cos(angle) * speed;
+        const vy = Math.sin(angle) * speed;
+        
+        // Add to container
+        explosionContainer.addChild(particle as any);
+        
+        // Store velocity in the particle object
+        (particle as any).vx = vx;
+        (particle as any).vy = vy;
+      }
+      
+      // Create a central flash
+      const flash = new PIXI.Graphics();
+      flash.beginFill(0xFFFFFF, 0.9);
+      flash.drawCircle(0, 0, 15 * scale);
+      flash.endFill();
+      explosionContainer.addChild(flash as any);
+      
+      // Use a ticker to animate the explosion
+      let timer = lifespan;
+      
+      // Get the app's ticker if it exists
+      const app = (window as any).pixiApp;
+      if (!app || !app.ticker) {
+        Logger.warn('Ship', 'Cannot animate explosion: app.ticker is null');
+        return;
+      }
+      
+      const animate = () => {
+        timer--;
+        
+        // Update all particles
+        for (let i = 0; i < explosionContainer.children.length - 1; i++) {
+          const particle = explosionContainer.children[i] as any;
+          
+          // Update position
+          particle.x += particle.vx;
+          particle.y += particle.vy;
+          
+          // Reduce scale and alpha
+          particle.alpha = timer / lifespan;
+          
+          // Add some random wiggle for more natural movement
+          particle.x += (Math.random() - 0.5) * scale;
+          particle.y += (Math.random() - 0.5) * scale;
+        }
+        
+        // Update flash
+        flash.alpha = (timer / lifespan) * 0.8;
+        flash.scale.set(1 + (1 - timer / lifespan) * 2);
+        
+        // Remove explosion when timer expires
+        if (timer <= 0) {
+          app.ticker.remove(animate);
+          gameContainer.removeChild(explosionContainer as any);
+          explosionContainer.destroy({ children: true });
+        }
+      };
+      
+      app.ticker.add(animate);
+    } catch (error) {
+      Logger.error('Ship.createExplosionEffect', error);
+    }
   }
   
   // Add firing methods
@@ -773,6 +949,7 @@ export class Ship {
   public getProjectileSpawnPosition(weaponType: WeaponType, index: number = 0): { x: number, y: number, rotation: number } {
     const weaponProps = WEAPON_PROPERTIES[this.type][weaponType];
     const shipWidth = SHIP_COLLISION_DATA[this.type].width;
+    const shipHeight = SHIP_COLLISION_DATA[this.type].height;
     
     // Calculate offset based on ship size and rotation
     let offsetX = 0;
@@ -780,52 +957,90 @@ export class Ship {
     
     // For primary weapons (cannons), offset to the sides
     if (weaponType === WeaponType.PRIMARY) {
-      // For multi-cannon ships, calculate offset based on index
-      if (weaponProps.count > 1) {
-        // Calculate lateral offset perpendicular to ship direction
-        const lateralOffset = (index - (weaponProps.count - 1) / 2) * (shipWidth * 0.4);
-        
-        // Calculate offset perpendicular to ship direction
-        const perpAngle = this.rotation + Math.PI/2;
-        offsetX = Math.cos(perpAngle) * lateralOffset;
-        offsetY = Math.sin(perpAngle) * lateralOffset;
-        
-        // Also add a small forward offset
-        offsetX += Math.cos(this.rotation) * (shipWidth * 0.2);
-        offsetY += Math.sin(this.rotation) * (shipWidth * 0.2);
-      } else {
-        // Single cannon - place slightly forward of ship center
-        offsetX = Math.cos(this.rotation) * (shipWidth * 0.2);
-        offsetY = Math.sin(this.rotation) * (shipWidth * 0.2);
+      // Total number of cannons
+      const totalCannons = weaponProps.count;
+      
+      // Determine turret position based on its index and total count
+      let positionType = 'front'; // Default to front
+
+      // For multiple cannons, place them in realistic positions
+      if (totalCannons === 2) {
+        // Two turrets: one front, one aft
+        positionType = index === 0 ? 'front' : 'aft';
+      } else if (totalCannons === 3) {
+        // Three turrets: two front, one aft
+        positionType = index < 2 ? 'front' : 'aft';
       }
       
-      console.log(`Primary weapon spawn position: Ship at (${this.x}, ${this.y}), offset (${offsetX}, ${offsetY})`);
+      // Calculate position based on type
+      if (positionType === 'front') {
+        // Front turret - place forward
+        const forwardOffset = shipWidth * 0.45; // 45% of ship width from center
+        
+        // If multiple front turrets, spread them out slightly
+        let lateralOffset = 0;
+        if (totalCannons === 2 && index === 0) {
+          // No lateral offset needed for single front turret
+        } else if (totalCannons === 3 && index < 2) {
+          // For two front turrets, spread them slightly
+          lateralOffset = (index === 0 ? -1 : 1) * (shipHeight * 0.4);
+        }
+        
+        // Calculate offset in ship's coordinate system
+        offsetX = Math.cos(this.rotation) * forwardOffset; 
+        offsetY = Math.sin(this.rotation) * forwardOffset;
+        
+        // Add lateral offset perpendicular to ship direction
+        if (lateralOffset !== 0) {
+          const perpAngle = this.rotation + Math.PI/2;
+          offsetX += Math.cos(perpAngle) * lateralOffset;
+          offsetY += Math.sin(perpAngle) * lateralOffset;
+        }
+      } else {
+        // Aft turret - place at back
+        const backwardOffset = -shipWidth * 0.35; // 35% of ship width back from center
+        offsetX = Math.cos(this.rotation) * backwardOffset;
+        offsetY = Math.sin(this.rotation) * backwardOffset;
+      }
+      
+      Logger.debug('Ship', `Primary weapon [${index}/${totalCannons}] spawn position: Ship at (${this.x.toFixed(1)}, ${this.y.toFixed(1)}), offset (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+      
+      // Ensure projectile spawns just outside ship's collision area
+      const spawnDistance = Math.max(this.collisionRadius * 1.1, 5);
+      const direction = positionType === 'front' ? 1 : -1;
+      const safeX = this.x + offsetX + (Math.cos(this.rotation) * direction * spawnDistance);
+      const safeY = this.y + offsetY + (Math.sin(this.rotation) * direction * spawnDistance);
       
       return {
-        x: this.x + offsetX,
-        y: this.y + offsetY,
+        x: safeX,
+        y: safeY,
         rotation: this.rotation // Use ship's rotation as initial direction
       };
     } 
     // For secondary weapons (torpedoes), offset to the front
     else {
       // Position torpedoes at the front of the ship
-      offsetX = Math.cos(this.rotation) * (shipWidth * 0.5);
-      offsetY = Math.sin(this.rotation) * (shipWidth * 0.5);
+      const forwardOffset = shipWidth * 0.5 + this.collisionRadius * 0.2; // Forward of ship + a safe margin
+      offsetX = Math.cos(this.rotation) * forwardOffset;
+      offsetY = Math.sin(this.rotation) * forwardOffset;
       
       // For multiple torpedoes, add slight lateral offset
       if (weaponProps.count > 1) {
-        const lateralOffset = (index - (weaponProps.count - 1) / 2) * (shipWidth * 0.2);
+        const lateralOffset = (index - (weaponProps.count - 1) / 2) * (shipHeight * 0.3);
         const perpAngle = this.rotation + Math.PI/2;
         offsetX += Math.cos(perpAngle) * lateralOffset;
         offsetY += Math.sin(perpAngle) * lateralOffset;
       }
       
-      console.log(`Secondary weapon spawn position: Ship at (${this.x}, ${this.y}), offset (${offsetX}, ${offsetY})`);
+      Logger.debug('Ship', `Secondary weapon [${index}/${weaponProps.count}] spawn position: Ship at (${this.x.toFixed(1)}, ${this.y.toFixed(1)}), offset (${offsetX.toFixed(1)}, ${offsetY.toFixed(1)})`);
+      
+      // Ensure torpedo spawns completely outside ship's collision area
+      const safeX = this.x + offsetX;
+      const safeY = this.y + offsetY;
       
       return {
-        x: this.x + offsetX,
-        y: this.y + offsetY,
+        x: safeX,
+        y: safeY,
         rotation: this.rotation // Use ship's rotation as initial direction
       };
     }
@@ -933,5 +1148,176 @@ export class Ship {
       -10, 0,   // Back middle
       -20, 12.5   // Right back
     ]);
+  }
+  
+  /**
+   * Fire a weapon
+   * @param weaponType Weapon type (PRIMARY or SECONDARY)
+   * @param targetX Target X coordinate
+   * @param targetY Target Y coordinate
+   */
+  public fireWeapon(weaponType: WeaponType, targetX: number, targetY: number): Projectile[] {
+    try {
+      // Get weapon properties
+      const weaponProps = WEAPON_PROPERTIES[this.type][weaponType];
+      
+      // Check cooldown
+      if (weaponType === WeaponType.PRIMARY && this.primaryWeaponCooldown > 0) {
+        return [];
+      } else if (weaponType === WeaponType.SECONDARY && this.secondaryWeaponCooldown > 0) {
+        return [];
+      }
+      
+      // Set cooldown
+      if (weaponType === WeaponType.PRIMARY) {
+        this.primaryWeaponCooldown = weaponProps.cooldown;
+      } else {
+        this.secondaryWeaponCooldown = weaponProps.cooldown;
+      }
+      
+      // Create projectiles
+      const projectiles: Projectile[] = [];
+      
+      // Calculate angle to target
+      const dx = targetX - this.x;
+      const dy = targetY - this.y;
+      const targetAngle = Math.atan2(dy, dx);
+      
+      // Log firing details
+      Logger.info('Ship', `Ship ${this.id} (${this.playerName}) firing ${weaponType} weapon at (${targetX.toFixed(1)}, ${targetY.toFixed(1)}), angle: ${targetAngle.toFixed(2)}`);
+      
+      // Create each projectile in the volley with appropriate spread
+      for (let i = 0; i < weaponProps.count; i++) {
+        try {
+          // Get spawn position for this projectile
+          const spawnPos = this.getProjectileSpawnPosition(weaponType, i);
+          
+          // Calculate rotation with spread if multiple projectiles
+          let rotation = targetAngle;
+          
+          // Add spread for multi-projectile weapons
+          if (weaponProps.count > 1) {
+            const spreadOffset = (i - (weaponProps.count - 1) / 2) * weaponProps.spread;
+            rotation += spreadOffset;
+          }
+          
+          // Create the projectile
+          const projectile = new Projectile(
+            weaponProps.type,
+            spawnPos.x,
+            spawnPos.y,
+            rotation,
+            this.id
+          );
+          
+          // Add to list
+          projectiles.push(projectile);
+          
+          // Create firing effect at the spawn position
+          if (networkManagerRef) {
+            const game = (window as any).game;
+            if (game && typeof game.createFiringEffect === 'function') {
+              game.createFiringEffect(spawnPos.x, spawnPos.y, this.rotation, projectile.type);
+            }
+          }
+          
+          // Log projectile creation
+          Logger.debug('Ship', `Created projectile ${projectile.id} at position (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)})`);
+        } catch (error) {
+          Logger.error('Ship.fireWeapon.projectileCreation', error);
+        }
+      }
+      
+      // Play firing sound (if available)
+      this.playWeaponSound(weaponType);
+      
+      return projectiles;
+    } catch (error) {
+      Logger.error('Ship.fireWeapon', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Play weapon firing sound
+   * @param weaponType Type of weapon being fired
+   */
+  private playWeaponSound(weaponType: WeaponType): void {
+    try {
+      // This is a stub method for now - sound effects would be implemented in a future update
+      Logger.debug('Ship', `Playing ${weaponType} weapon sound for ship ${this.id}`);
+      
+      // Example code for future sound implementation:
+      // const soundId = weaponType === WeaponType.PRIMARY ? 'cannon_fire' : 'torpedo_launch';
+      // const soundManager = (window as any).soundManager;
+      // if (soundManager && typeof soundManager.playSound === 'function') {
+      //   soundManager.playSound(soundId, { volume: 0.8, pan: 0 });
+      // }
+    } catch (error) {
+      Logger.error('Ship.playWeaponSound', error);
+    }
+  }
+  
+  /**
+   * Recreate the name text and container after destruction
+   * This is needed for ship respawn
+   */
+  public recreateNameDisplay(): PIXI.Container {
+    try {
+      // Create new name container
+      this.nameContainer = new PIXI.Container();
+      
+      // Create new name text
+      this.nameText = new PIXI.Text(this.playerName, {
+        fontFamily: 'Arial',
+        fontSize: 14,
+        fill: 0xFFFFFF,
+        align: 'center',
+        stroke: 0x000000,
+        strokeThickness: 4,
+        lineJoin: 'round'
+      });
+      
+      // Center the name text horizontally
+      this.nameText.anchor.set(0.5, 0);
+      
+      // Add name text to its container
+      this.nameContainer.addChild(this.nameText as unknown as PIXI.DisplayObject);
+      
+      // Position the name container below the ship
+      this.nameContainer.position.set(this.x, this.y + 38); // 38px is about 1cm below the ship
+      
+      return this.nameContainer;
+    } catch (error) {
+      Logger.error('Ship.recreateNameDisplay', error);
+      return new PIXI.Container(); // Return empty container on error
+    }
+  }
+  
+  /**
+   * Recreate the ship sprite after destruction
+   * This is needed when a ship respawns after being destroyed
+   */
+  public recreateShipSprite(): void {
+    try {
+      // Create new ship sprite
+      if (this.sprite === null) {
+        this.sprite = this.createShipSprite();
+        Logger.info('Ship', `Recreated sprite for ${this.playerName}`);
+      }
+      
+      // Update sprite position and rotation
+      this.updateSpritePosition();
+      
+      // Update damage appearance
+      this.updateDamageAppearance();
+      
+      // Recreate name display if it's missing
+      if (!this.nameContainer) {
+        this.recreateNameDisplay();
+      }
+    } catch (error) {
+      Logger.error('Ship.recreateShipSprite', error);
+    }
   }
 } 
