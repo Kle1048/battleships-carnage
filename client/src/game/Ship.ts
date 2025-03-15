@@ -315,6 +315,12 @@ export class Ship {
     }
   }
   
+  // Add a static method to set the user-selected color
+  public static setUserSelectedColor(color: number): void {
+    Ship.userSelectedColor = color;
+    localStorage.setItem('shipColor', color.toString());
+  }
+  
   createShipSprite(): PIXI.Container {
     const container = new PIXI.Container();
     
@@ -344,19 +350,22 @@ export class Ship {
    * Update the sprite position and rotation to match the ship
    */
   updateSpritePosition(): void {
+    if (!this.sprite) {
+      console.warn(`Cannot update sprite position for ${this.playerName}: sprite is null`);
+      this.sprite = this.createShipSprite();
+    }
+    
+    // Use try-catch to catch any issues with updating sprite position
     try {
-      // Update ship sprite position and rotation
-      if (this.sprite) {
-        this.sprite.position.set(this.x, this.y);
-        this.sprite.rotation = this.rotation;
-      }
+      this.sprite.position.set(this.x, this.y);
+      this.sprite.rotation = this.rotation;
       
-      // Update name container position (but not rotation, to keep it horizontal)
+      // Position nameContainer above ship if it exists
       if (this.nameContainer) {
-        this.nameContainer.position.set(this.x, this.y + 38); // 38px is about 1cm below the ship
+        this.nameContainer.position.set(this.x, this.y - 40);
       }
     } catch (error) {
-      console.error('Error updating sprite position:', error);
+      console.error(`Error updating sprite position for ${this.playerName}:`, error);
     }
   }
   
@@ -1319,5 +1328,47 @@ export class Ship {
     } catch (error) {
       Logger.error('Ship.recreateShipSprite', error);
     }
+  }
+  
+  /**
+   * Ensure this ship is properly initialized with valid position and sprite
+   * @returns true if the ship has been fixed, false if it was already valid
+   */
+  public ensureValidState(): boolean {
+    let wasFixed = false;
+    
+    // Check if position is valid (within world bounds)
+    const worldSize = 5000; // Should match WORLD_SIZE from Game.ts
+    const margin = 100;
+    
+    // Check for invalid position
+    const hasInvalidPosition = 
+      this.x === undefined || this.y === undefined || 
+      this.x === null || this.y === null ||
+      Number.isNaN(this.x) || Number.isNaN(this.y) ||
+      !Number.isFinite(this.x) || !Number.isFinite(this.y) ||
+      this.x < margin || this.x > worldSize - margin ||
+      this.y < margin || this.y > worldSize - margin;
+      
+    if (hasInvalidPosition) {
+      console.warn(`Ship ${this.playerName} has invalid position: (${this.x}, ${this.y}). Setting to world center.`);
+      this.x = worldSize / 2;
+      this.y = worldSize / 2;
+      wasFixed = true;
+    }
+    
+    // Check if sprite exists
+    if (!this.sprite) {
+      console.warn(`Ship ${this.playerName} has no sprite. Recreating.`);
+      this.sprite = this.createShipSprite();
+      wasFixed = true;
+    }
+    
+    // If any fixes were applied, update sprite position
+    if (wasFixed) {
+      this.updateSpritePosition();
+    }
+    
+    return wasFixed;
   }
 } 

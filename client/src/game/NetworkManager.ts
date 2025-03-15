@@ -1,6 +1,6 @@
 import * as PIXI from 'pixi.js';
 import { io, Socket } from 'socket.io-client';
-import { Ship } from './Ship';
+import { Ship, ThrottleSetting, RudderSetting } from './Ship';
 import { Projectile, ProjectileType } from './Projectile';
 import { showNotification, showDamageIndicator } from './Game';
 import * as Logger from '../utils/Logger';
@@ -62,6 +62,13 @@ function getLocalIPAddresses(): string[] {
   return ips;
 }
 
+// Add PlayerConfig interface or reuse if already defined
+interface PlayerConfig {
+  name: string;
+  color: number;
+  type: string;
+}
+
 export class NetworkManager {
   private socket: Socket | null = null;
   private players: Map<string, Ship> = new Map();
@@ -76,10 +83,17 @@ export class NetworkManager {
   private onProjectileCreated: ((projectile: Projectile) => void) | null = null;
   private deviceId: string | null = null;
   private playerName: string = '';
+  private playerConfig: PlayerConfig | null = null;
   private identificationTimeout: NodeJS.Timeout | null = null;
 
-  constructor(gameContainer: PIXI.Container, serverUrl: string = SERVER_URL) {
+  constructor(gameContainer: PIXI.Container, serverUrl: string = SERVER_URL, playerConfig?: PlayerConfig) {
     this.gameContainer = gameContainer;
+    
+    // Store player configuration if provided
+    if (playerConfig) {
+      this.playerConfig = playerConfig;
+      this.playerName = playerConfig.name;
+    }
     
     // Use the getServerUrl function to ensure consistent server URL
     this.serverUrl = serverUrl;
@@ -92,11 +106,18 @@ export class NetworkManager {
     this.deviceId = localStorage.getItem(DEVICE_ID_KEY);
     Logger.debug('Device ID from storage:', this.deviceId);
     
-    // Get player name
-    this.playerName = this.getPlayerName();
+    // Get player name if not provided in config
+    if (!this.playerName) {
+      this.playerName = this.getPlayerName();
+    }
     
     // Log connection details for debugging
     Logger.info(`Connecting to server at: ${this.serverUrl}`);
+    Logger.info(`Player name: ${this.playerName}`);
+    if (this.playerConfig) {
+      Logger.info(`Ship type: ${this.playerConfig.type}`);
+      Logger.info(`Ship color: ${this.playerConfig.color.toString(16)}`);
+    }
     console.log(`Possible local IPs: ${getLocalIPAddresses().join(', ')}`);
     console.log(`If you're having connection issues, try these URLs in your browser:`);
     getLocalIPAddresses().forEach(ip => {
@@ -281,7 +302,21 @@ export class NetworkManager {
       
       // Get the player's initial position from the server
       const playerData = state.players[this.playerId];
-      if (playerData && this.localPlayer) {
+      
+      // Add more robust error handling for player data
+      if (!playerData) {
+        console.error('Error: Player data not found in game state for self:', this.playerId);
+        console.error('Available players:', Object.keys(state.players));
+        
+        // Request a respawn to get a valid position
+        if (this.socket && this.socket.connected) {
+          console.log('Requesting respawn due to missing player data');
+          this.socket.emit('requestRespawn');
+        }
+        return;
+      }
+      
+      if (this.localPlayer) {
         console.log('Setting initial player position:', playerData);
         
         // Validate position data
@@ -310,11 +345,25 @@ export class NetworkManager {
           if (typeof this.localPlayer.resetSpawnProtection === 'function') {
             this.localPlayer.resetSpawnProtection();
           }
+          
+          console.log('Player position initialized successfully:', {
+            x: this.localPlayer.x,
+            y: this.localPlayer.y,
+            rotation: this.localPlayer.rotation
+          });
         } else {
           console.error('Received invalid position from server:', playerData);
           // Request a respawn to get a valid position
           this.socket?.emit('requestRespawn');
+          
+          // As a failsafe, set player to a reasonable default position
+          this.localPlayer.x = 2500; // WORLD_SIZE / 2
+          this.localPlayer.y = 2500; // WORLD_SIZE / 2
+          this.localPlayer.updateSpritePosition();
+          console.log('Set fallback position while waiting for respawn');
         }
+      } else {
+        console.error('Error: Local player not initialized when receiving game state');
       }
       
       // Create ships for all other players
@@ -325,36 +374,16 @@ export class NetworkManager {
             this.addPlayer(player);
           } else {
             console.error('Received invalid position for other player:', player);
+            // Still add the player but with a corrected position
+            const correctedPlayer = {...player, x: 2500, y: 2500};
+            this.addPlayer(correctedPlayer);
           }
         }
       });
       
-      // Debug: Check if players are visible in the game world
+      // After 1 second, check if all players are visible and properly positioned
       setTimeout(() => {
-        console.log('DEBUG: Checking player visibility after 1 second');
-        this.players.forEach((ship, id) => {
-          // Add null check for ship.sprite
-          if (!ship.sprite) {
-            console.warn(`Player ${ship.playerName} (${id}): sprite is null!`);
-            return;
-          }
-          
-          const isVisible = ship.sprite.visible;
-          const hasParent = !!ship.sprite.parent;
-          const position = { x: ship.x, y: ship.y };
-          const isLocal = id === this.playerId;
-          
-          console.log(`Player ${ship.playerName} (${id}): visible=${isVisible}, hasParent=${hasParent}, position=${JSON.stringify(position)}, isLocal=${isLocal}`);
-          
-          // Check name container
-          if ((ship as any).nameContainer) {
-            const nameVisible = (ship as any).nameContainer.visible;
-            const nameHasParent = !!(ship as any).nameContainer.parent;
-            console.log(`- Name container: visible=${nameVisible}, hasParent=${nameHasParent}`);
-          } else {
-            console.log(`- No name container found`);
-          }
-        });
+        this.verifyAllPlayersVisible();
       }, 1000);
     });
     
@@ -610,42 +639,45 @@ export class NetworkManager {
       
       // Update local player with new position and type
       if (this.localPlayer) {
+        // Update position and rotation
         this.localPlayer.x = player.x;
         this.localPlayer.y = player.y;
         this.localPlayer.rotation = player.rotation;
         this.localPlayer.hull = player.hull;
         this.localPlayer.maxHull = player.hull;
         
+        // Reset movement properties
+        this.localPlayer.speed = 0;
+        this.localPlayer.setThrottle(ThrottleSetting.STOP);
+        this.localPlayer.setRudder(RudderSetting.AHEAD);
+        
         // Update ship type if it changed
         if (this.localPlayer.type !== player.type) {
           this.localPlayer.type = player.type as ShipType;
+          // If type changed, sprite should be recreated
+          this.localPlayer.recreateShipSprite();
           
-          // Recreate sprite with new ship type
-          if (this.localPlayer.sprite && this.localPlayer.sprite.parent) {
-            this.localPlayer.sprite.parent.removeChild(this.localPlayer.sprite as any);
+          if (this.localPlayer.sprite && !this.localPlayer.sprite.parent) {
+            // If the sprite exists but isn't in the scene, add it
+            this.gameContainer.addChild(this.localPlayer.sprite as unknown as PIXI.DisplayObject);
           }
-          this.localPlayer.sprite = this.localPlayer.createShipSprite();
-          this.gameContainer.addChild(this.localPlayer.sprite as any);
-        } else if (!this.localPlayer.sprite) {
-          // If sprite doesn't exist, recreate it
-          Logger.info('NetworkManager', `Recreating missing sprite for local player on respawn`);
-          this.localPlayer.sprite = this.localPlayer.createShipSprite();
-          this.gameContainer.addChild(this.localPlayer.sprite as any);
         }
         
-        // Make ship visible again (if sprite exists)
+        // Make sure to update the sprite position to match the new server position
+        this.localPlayer.updateSpritePosition();
+        
+        // Ensure the ship is visible
         if (this.localPlayer.sprite) {
           this.localPlayer.sprite.visible = true;
         }
         
-        // Reset appearance
-        this.localPlayer.updateDamageAppearance();
-        this.localPlayer.updateSpritePosition();
+        // Show notification
+        showNotification('Ship respawned!', 3000);
         
-        // Reset spawn protection
-        if (typeof this.localPlayer.resetSpawnProtection === 'function') {
-          this.localPlayer.resetSpawnProtection();
-        }
+        // Log respawn details
+        Logger.info('NetworkManager', `Player respawned at position (${player.x.toFixed(0)}, ${player.y.toFixed(0)})`);
+      } else {
+        Logger.error('NetworkManager', 'Received respawnAccepted but localPlayer is null');
       }
     });
     
@@ -792,28 +824,8 @@ export class NetworkManager {
           existingShip.rotation = player.rotation;
           existingShip.hull = player.hull;
           
-          // Check if sprite needs to be recreated (if it was destroyed and is now null)
-          if (!existingShip.sprite) {
-            Logger.info('NetworkManager', `Recreating sprite for existing player ${existingShip.playerName} who rejoined`);
-            
-            // Recreate the ship sprite and name display
-            existingShip.recreateShipSprite();
-            this.gameContainer.addChild(existingShip.sprite as unknown as PIXI.DisplayObject);
-            
-            // Add name container back to game world
-            if ((existingShip as any).nameContainer) {
-              this.gameContainer.addChild((existingShip as any).nameContainer as unknown as PIXI.DisplayObject);
-            }
-          } else {
-            // Ensure sprite and name display are visible (they might have been hidden)
-            if (existingShip.sprite) {
-              existingShip.sprite.visible = true;
-            }
-            
-            if ((existingShip as any).nameContainer) {
-              (existingShip as any).nameContainer.visible = true;
-            }
-          }
+          // Ensure ship has valid state (position, sprite, etc.)
+          existingShip.ensureValidState();
           
           // Update damage appearance based on hull value
           existingShip.updateDamageAppearance();
@@ -823,9 +835,6 @@ export class NetworkManager {
             Logger.info('NetworkManager', `Updating ship color for ${existingShip.playerName}: ${existingShip.color} -> ${player.color}`);
             existingShip.updateColor(player.color);
           }
-          
-          // Update sprite position
-          existingShip.updateSpritePosition();
         }
         
         return;
@@ -838,10 +847,14 @@ export class NetworkManager {
         type: player.type
       });
       
-      // Create ship object
+      // Create ship object with safety checks for position
+      const worldSize = 5000; // Should match WORLD_SIZE from Game.ts
+      const safeX = this.isValidPosition(player.x, player.y) ? player.x : worldSize / 2;
+      const safeY = this.isValidPosition(player.x, player.y) ? player.y : worldSize / 2;
+      
       const ship = new Ship({
-        x: player.x,
-        y: player.y,
+        x: safeX,
+        y: safeY,
         rotation: player.rotation,
         speed: 0,
         maxSpeed: 2,
@@ -852,6 +865,9 @@ export class NetworkManager {
         playerId: player.id,
         playerName: player.name || `Player ${player.id}`
       });
+      
+      // Ensure ship has valid state
+      ship.ensureValidState();
       
       // Update ship color if provided by the server
       if (typeof player.color === 'number') {
@@ -871,18 +887,6 @@ export class NetworkManager {
         console.warn(`Name container not found for player ${player.name}`);
       }
       
-      // Ensure sprite is visible
-      if (ship.sprite && !ship.sprite.visible) {
-        console.log(`Making ${ship.playerName}'s ship visible in addOrUpdateOtherPlayer`);
-        ship.sprite.visible = true;
-      }
-      
-      // Ensure name container is visible
-      if ((ship as any).nameContainer && !(ship as any).nameContainer.visible) {
-        console.log(`Making name container visible for new player ${ship.playerName}`);
-        (ship as any).nameContainer.visible = true;
-      }
-      
       // Add the ship to the players map
       this.players.set(player.id, ship);
       
@@ -897,9 +901,6 @@ export class NetworkManager {
       if (typeof ship.resetSpawnProtection === 'function') {
         ship.resetSpawnProtection();
       }
-      
-      // Force update sprite position
-      ship.updateSpritePosition();
     } catch (error) {
       console.error('Error adding player:', error);
     }
@@ -1114,11 +1115,20 @@ export class NetworkManager {
     
     console.log('Identifying device to server...');
     
-    // Send device ID to server (if we have one)
-    this.socket.emit('identifyDevice', {
+    // Prepare identification data
+    const identificationData: any = {
       deviceId: this.deviceId,
       playerName: this.playerName
-    });
+    };
+    
+    // Add ship configuration if available
+    if (this.playerConfig) {
+      identificationData.color = this.playerConfig.color;
+      identificationData.type = this.playerConfig.type;
+    }
+    
+    // Send device ID and player configuration to server
+    this.socket.emit('identifyDevice', identificationData);
     
     // Don't automatically request game state - wait for deviceIdAssigned event
   }
@@ -1154,9 +1164,18 @@ export class NetworkManager {
   }
 
   private isValidPosition(x: number, y: number): boolean {
-    // Add validation based on your game world boundaries
-    // For now, just basic validation to prevent NaN and Infinity
-    return Number.isFinite(x) && Number.isFinite(y);
+    // Check for NaN, undefined, null, Infinity
+    if (x === undefined || y === undefined || x === null || y === null ||
+        Number.isNaN(x) || Number.isNaN(y) ||
+        !Number.isFinite(x) || !Number.isFinite(y)) {
+      return false;
+    }
+    
+    // Check if position is within reasonable world boundaries
+    // Using 5000 as the world size with a small margin
+    const worldSize = 5000;
+    const margin = 100;
+    return x >= margin && x <= worldSize - margin && y >= margin && y <= worldSize - margin;
   }
 
   /**
@@ -1267,6 +1286,50 @@ export class NetworkManager {
       }
     } catch (error) {
       Logger.error('NetworkManager.updatePlayer', error);
+    }
+  }
+
+  // Add a new method to verify all players are visible and have valid positions
+  private verifyAllPlayersVisible(): void {
+    let missingPlayers = false;
+    
+    // Check all players
+    this.players.forEach((ship, id) => {
+      // Check if sprite exists and is in the scene
+      if (!ship.sprite || !ship.sprite.parent) {
+        console.warn(`Player ${ship.playerName} (${id}) has no sprite or it's not in the scene`);
+        
+        // Recreate the sprite
+        try {
+          console.log(`Recreating sprite for player ${ship.playerName}`);
+          ship.recreateShipSprite();
+          this.gameContainer.addChild(ship.sprite as any);
+        } catch (error) {
+          console.error(`Failed to recreate sprite for player ${ship.playerName}:`, error);
+        }
+        
+        missingPlayers = true;
+      }
+      
+      // Check for valid position
+      if (!this.isValidPosition(ship.x, ship.y)) {
+        console.warn(`Player ${ship.playerName} (${id}) has invalid position: (${ship.x}, ${ship.y})`);
+        
+        // Set a valid position as a fallback
+        ship.x = 2500; // WORLD_SIZE / 2
+        ship.y = 2500; // WORLD_SIZE / 2
+        ship.updateSpritePosition();
+        
+        missingPlayers = true;
+      }
+    });
+    
+    // If any issues were found, request a game state refresh
+    if (missingPlayers && this.socket && this.socket.connected) {
+      console.log('Some players had issues - requesting game state refresh');
+      this.requestGameState();
+    } else {
+      console.log('All players are properly visible and positioned');
     }
   }
 } 

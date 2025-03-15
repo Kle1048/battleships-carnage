@@ -4,7 +4,17 @@ import { initGame } from '../game/Game';
 import MobileControls from './MobileControls';
 import './GameCanvas.css';
 
-const GameCanvas: React.FC = () => {
+interface PlayerConfig {
+  name: string;
+  color: number;
+  type: string;
+}
+
+interface GameCanvasProps {
+  playerConfig: PlayerConfig | null;
+}
+
+const GameCanvas: React.FC<GameCanvasProps> = ({ playerConfig }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<PIXI.Application | null>(null);
   const [inputHandler, setInputHandler] = useState<any>(null);
@@ -29,7 +39,14 @@ const GameCanvas: React.FC = () => {
     // Set mobile state early
     setIsMobile(checkMobile());
     
-    if (canvasRef.current && !appRef.current) {
+    if (canvasRef.current && !appRef.current && playerConfig) {
+      // Save player config to localStorage for potential future use
+      localStorage.setItem('playerName', playerConfig.name);
+      localStorage.setItem('shipColor', playerConfig.color.toString());
+      localStorage.setItem('shipType', playerConfig.type);
+      
+      console.log('Starting game with player config:', playerConfig);
+      
       // Initialize PIXI Application
       const app = new PIXI.Application({
         width: window.innerWidth,
@@ -44,7 +61,7 @@ const GameCanvas: React.FC = () => {
       appRef.current = app;
 
       // Initialize the game and get the input handler
-      const handler = initGame(app);
+      const handler = initGame(app, playerConfig);
       setInputHandler(handler);
       
       // Double-check mobile detection from InputHandler
@@ -86,7 +103,7 @@ const GameCanvas: React.FC = () => {
         }
       };
     }
-  }, []);
+  }, [playerConfig]);
 
   // Log when mobile state or input handler changes
   useEffect(() => {
@@ -114,6 +131,8 @@ const GameCanvas: React.FC = () => {
         }}>
           Mobile: {isMobile ? 'Yes' : 'No'}<br />
           Handler: {inputHandler ? 'Yes' : 'No'}<br />
+          Player: {playerConfig?.name || 'N/A'}<br />
+          Ship: {playerConfig?.type || 'N/A'}<br />
           W: {window.innerWidth} H: {window.innerHeight}
         </div>
       )}

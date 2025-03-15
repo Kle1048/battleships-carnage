@@ -2,8 +2,8 @@
  * Logger utility for standardized logging and error handling
  */
 
-// Set to false in production
-export const DEBUG_MODE = process.env.NODE_ENV === 'development';
+// Explicitly set to false for production
+export const DEBUG_MODE = false;
 
 // Log levels
 export enum LogLevel {

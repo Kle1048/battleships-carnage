@@ -1,17 +1,20 @@
 import * as PIXI from 'pixi.js';
-import { Ship, ThrottleSetting, RudderSetting, setNetworkManagerRef, WeaponType, SHIP_COLORS } from './Ship';
+import { Ship, ThrottleSetting, RudderSetting, setNetworkManagerRef, WeaponType, SHIP_COLORS, ShipType } from './Ship';
 import { InputHandler } from './InputHandler';
 import { NetworkManager } from './NetworkManager';
 import { Projectile, ProjectileType } from './Projectile';
-import { NetworkDebug } from './NetworkDebug';
 import * as Logger from '../utils/Logger';
+import { SpatialGrid } from '../utils/SpatialGrid';
+import { ProjectilePool } from './ProjectilePool';
+import { DeltaCompression } from '../utils/DeltaCompression';
 
 // Game state
 let app: PIXI.Application;
 let playerShip: Ship;
 let inputHandler: InputHandler;
 let networkManager: NetworkManager;
-let networkDebug: NetworkDebug;
+let spatialGrid: SpatialGrid;
+let projectilePool: ProjectilePool;
 let gameLoop: (delta: number) => void;
 let statusText: PIXI.Text;
 let controlsText: PIXI.Text;
@@ -65,9 +68,36 @@ const POSITION_UPDATE_INTERVAL: number = 1; // Send position updates every frame
 
 // Expose game instance globally for other modules to access
 let game: any = null;
-(window as any).game = {};
 
-export function initGame(pixiApp: PIXI.Application): InputHandler {
+// Add this interface or reuse the one from elsewhere
+interface PlayerConfig {
+  name: string;
+  color: number;
+  type: string;
+}
+
+// Add this function to generate random ship names
+function getRandomShipName(): string {
+  const prefixes = [
+    'HMS', 'USS', 'SS', 'RMS', 'INS', 'CSN',
+  ];
+  
+  const names = [
+    'Intrepid', 'Victory', 'Dauntless', 'Defiant', 'Invincible',
+    'Sovereign', 'Resolute', 'Valiant', 'Guardian', 'Vengeance',
+    'Dreadnought', 'Nemesis', 'Phoenix', 'Thunderbolt', 'Voyager',
+    'Odyssey', 'Endeavor', 'Discovery', 'Pioneer', 'Explorer'
+  ];
+  
+  const suffix = Math.floor(Math.random() * 100).toString().padStart(2, '0');
+  
+  const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+  const name = names[Math.floor(Math.random() * names.length)];
+  
+  return `${prefix} ${name}-${suffix}`;
+}
+
+export function initGame(pixiApp: PIXI.Application, playerConfig?: PlayerConfig): InputHandler {
   app = pixiApp;
   isGameOver = false;
   projectiles = [];
@@ -85,8 +115,12 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
   console.log(`Screen size: ${window.innerWidth}x${window.innerHeight}`);
   console.log(`Pixel ratio: ${window.devicePixelRatio}`);
   
-  // Initialize ship color from storage
-  Ship.initializeColorFromStorage();
+  // Initialize ship color from storage or from player config
+  if (playerConfig?.color) {
+    Ship.setUserSelectedColor(playerConfig.color);
+  } else {
+    Ship.initializeColorFromStorage();
+  }
   
   // Create a container for the game world
   const gameWorld = new PIXI.Container();
@@ -113,25 +147,14 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
   enemyIndicator.visible = false;
   gameWorld.addChild(enemyIndicator as any);
   
-  // Create network manager
-  networkManager = new NetworkManager(gameWorld);
+  // Create network manager with player config
+  networkManager = new NetworkManager(gameWorld, undefined, playerConfig);
   
-  // Create network debug utility
-  networkDebug = new NetworkDebug(app, networkManager);
-  
-  // Set network manager reference in Ship class
-  setNetworkManagerRef(networkManager);
-  
-  // Create player ship
-  createPlayerShip(gameWorld);
+  // Create player ship with chosen type if specified
+  createPlayerShip(gameWorld, playerConfig?.type as ShipType);
   
   // Set local player in network manager
   networkManager.setLocalPlayer(playerShip);
-  
-  // Set local player ID in network debug once it's available
-  setTimeout(() => {
-    networkDebug.setLocalPlayerId(networkManager.getPlayerId());
-  }, 2000);
   
   // Set up camera to follow player
   setupCamera(gameWorld);
@@ -149,7 +172,7 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
       
       // Ensure the projectile sprite is created before adding to container
       if (projectile.sprite) {
-        projectilesContainer.addChild(projectile.sprite as any);
+        projectilesContainer.addChild(projectile.sprite as unknown as PIXI.DisplayObject);
         
         // Add firing effect
         createFiringEffect(
@@ -356,7 +379,6 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
       // Still update UI elements that don't depend on playerShip
       updateConnectionStatus();
       inputHandler.update();
-      networkDebug.update();
       return;
     }
     
@@ -414,9 +436,6 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
     // Update enemy indicator
     updateEnemyIndicator();
     
-    // Update network debug display
-    networkDebug.update();
-    
     // Increment frame counter
     frameCounter++;
   };
@@ -437,6 +456,15 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
     }
   });
   
+  // Initialize spatial grid for collision detection
+  spatialGrid = new SpatialGrid(500); // 500px cell size
+  
+  // Initialize projectile pool
+  projectilePool = ProjectilePool.getInstance();
+  
+  // Preallocate projectiles for smoother gameplay
+  projectilePool.preallocate(30, 15);
+  
   // Return the input handler so it can be used by the mobile controls
   return inputHandler;
 }
@@ -444,38 +472,80 @@ export function initGame(pixiApp: PIXI.Application): InputHandler {
 /**
  * Create the player ship
  */
-function createPlayerShip(gameWorld: PIXI.Container): void {
+function createPlayerShip(gameWorld: PIXI.Container, shipType?: ShipType): void {
   try {
-    // Start the player in the center of the world, but the server will update this position
-    // We're using the center as a safe default until we get the real position from the server
+    // Generate random ship name if not stored
+    const shipName = localStorage.getItem('playerName') || getRandomShipName();
+    
+    // Use provided ship type or default to destroyer
+    const type = shipType || 'destroyer';
+    
+    // Set initial position to center of world (server will update this)
+    const centerPosition = WORLD_SIZE / 2;
+    
+    // Create ship
     playerShip = new Ship({
-      x: WORLD_SIZE / 2,
-      y: WORLD_SIZE / 2,
+      x: centerPosition,
+      y: centerPosition,
       rotation: 0,
       speed: 0,
-      maxSpeed: 5,
-      acceleration: 0.1,
-      rotationSpeed: 0.05,
+      maxSpeed: getMaxSpeedForShipType(type),
+      acceleration: getAccelerationForShipType(type),
+      rotationSpeed: getRotationSpeedForShipType(type),
       hull: 100,
-      type: 'destroyer',
-      playerId: 'local', // Local player always has 'local' as ID
-      playerName: localStorage.getItem('playerName') || 'Unknown Player'
+      type: type,
+      playerId: 'local',
+      playerName: shipName
     });
     
-    // Add the ship sprite to the game world
+    // Ensure ship has valid state
+    playerShip.ensureValidState();
+    
+    // Add the ship to the game world
     gameWorld.addChild(playerShip.sprite as unknown as PIXI.DisplayObject);
     
-    // Add the name container to the game world
+    // Add the name container to the game container
     if ((playerShip as any).nameContainer) {
       gameWorld.addChild((playerShip as any).nameContainer as unknown as PIXI.DisplayObject);
     }
     
-    console.log('Player ship created at initial position:', {
-      x: playerShip.x,
-      y: playerShip.y
-    });
+    // Reference for Ship to access weapons system
+    setNetworkManagerRef(networkManager);
+    
+    console.log(`Created player ship: ${playerShip.playerName}, type: ${playerShip.type}, position: (${playerShip.x}, ${playerShip.y})`);
   } catch (error) {
     console.error('Error creating player ship:', error);
+    throw error; // Re-throw to make it clear that ship creation failed
+  }
+}
+
+// Helper function to get max speed for different ship types
+function getMaxSpeedForShipType(type: ShipType): number {
+  switch (type) {
+    case 'destroyer': return 3.0;
+    case 'cruiser': return 2.5;
+    case 'battleship': return 2.0;
+    default: return 2.5;
+  }
+}
+
+// Helper function to get acceleration for different ship types
+function getAccelerationForShipType(type: ShipType): number {
+  switch (type) {
+    case 'destroyer': return 0.06;
+    case 'cruiser': return 0.05;
+    case 'battleship': return 0.04;
+    default: return 0.05;
+  }
+}
+
+// Helper function to get rotation speed for different ship types
+function getRotationSpeedForShipType(type: ShipType): number {
+  switch (type) {
+    case 'destroyer': return 0.05;
+    case 'cruiser': return 0.04;
+    case 'battleship': return 0.03;
+    default: return 0.04;
   }
 }
 
@@ -583,8 +653,9 @@ function rejoinGame(): void {
   // Request a new ship from the server
   networkManager.requestRespawn();
   
-  // Reset player ship health
-  playerShip.hull = playerShip.maxHull;
+  // IMPORTANT: Don't modify local ship properties yet.
+  // The server will send back the new position and properties
+  // in the respawnAccepted event, which will update the ship.
   
   // Get reference to the game world container
   const gameWorld = app.stage.getChildAt(0) as PIXI.Container;
@@ -598,23 +669,18 @@ function rejoinGame(): void {
     gameWorld.addChild((playerShip as any).nameContainer as unknown as PIXI.DisplayObject);
   }
   
-  // Reset ship position to a random location
-  playerShip.x = Math.random() * WORLD_SIZE;
-  playerShip.y = Math.random() * WORLD_SIZE;
-  playerShip.rotation = Math.random() * Math.PI * 2;
-  playerShip.speed = 0;
-  playerShip.setThrottle(ThrottleSetting.STOP);
-  playerShip.setRudder(RudderSetting.AHEAD);
-  
-  // Update sprite position
-  playerShip.updateSpritePosition();
+  // Reset local ship health (server will override this with actual values)
+  playerShip.hull = playerShip.maxHull;
   
   // Reset spawn protection
   if (typeof playerShip.resetSpawnProtection === 'function') {
     playerShip.resetSpawnProtection();
   }
   
-  console.log('Ship rejoined successfully, sprite recreated');
+  // The server will send the new position and rotation
+  // in the respawnAccepted event, so we don't need to set random values here
+  
+  console.log('Ship rejoined successfully, sprite recreated, waiting for server position');
 }
 
 function handleShipControls(): void {
@@ -851,38 +917,39 @@ function updateCamera(gameWorld: PIXI.Container): void {
  * Check for collisions between ships
  */
 function checkCollisions(): void {
-  // Get all ships from the network manager
-  const ships = networkManager.getAllShips();
-  
-  // Check for collisions between all pairs of ships
-  for (let i = 0; i < ships.length; i++) {
-    const shipA = ships[i];
+  try {
+    // Get all ships from the network manager
+    const ships = networkManager.getAllShips();
     
-    // Skip if ship is null, destroyed, or sprite is not available
-    if (!shipA || !shipA.sprite) {
-      continue;
+    // Skip collision detection if there are too few ships
+    if (ships.length < 2) {
+      return;
     }
     
-    // Skip if ship is not visible (destroyed)
-    if (!shipA.sprite.visible) {
-      continue;
-    }
+    // Clear spatial grid before updating positions
+    spatialGrid.clear();
     
-    for (let j = 0; j < ships.length; j++) {
-      // Skip self-collision
-      if (i === j) {
-        continue;
-      }
-      
-      const shipB = ships[j];
-      
+    // Add all ships to the spatial grid
+    for (const ship of ships) {
       // Skip if ship is null, destroyed, or sprite is not available
-      if (!shipB || !shipB.sprite) {
+      if (!ship || !ship.sprite || !ship.sprite.visible) {
+        continue;
+      }
+      spatialGrid.addObject(ship);
+    }
+    
+    // Get potential collision pairs from the spatial grid
+    const potentialPairs = spatialGrid.getPotentialCollisionPairs();
+    
+    // Check each potential pair for actual collision
+    for (const [shipA, shipB] of potentialPairs) {
+      // Skip if either ship is null or not a Ship instance
+      if (!shipA || !shipB || !(shipA instanceof Ship) || !(shipB instanceof Ship)) {
         continue;
       }
       
-      // Skip if ship is not visible (destroyed)
-      if (!shipB.sprite.visible) {
+      // Skip if either ship is destroyed or sprite is not available
+      if (!shipA.sprite || !shipA.sprite.visible || !shipB.sprite || !shipB.sprite.visible) {
         continue;
       }
       
@@ -904,6 +971,8 @@ function checkCollisions(): void {
         }
       }
     }
+  } catch (error) {
+    Logger.error('Game.checkCollisions', error);
   }
 }
 
@@ -1082,8 +1151,8 @@ function firePlayerWeapon(weaponType: WeaponType): void {
       const finalAngle = angleToMouse + spreadAngle;
       
       try {
-        // Create the projectile with proper error handling
-        const projectile = new Projectile(
+        // Get projectile from pool instead of creating new
+        const projectile = projectilePool.getProjectile(
           weaponProps.type,
           spawnPos.x,
           spawnPos.y,
@@ -1096,7 +1165,7 @@ function firePlayerWeapon(weaponType: WeaponType): void {
         
         // Ensure the projectile sprite is created before adding to container
         if (projectile.sprite) {
-          projectilesContainer.addChild(projectile.sprite as any);
+          projectilesContainer.addChild(projectile.sprite as unknown as PIXI.DisplayObject);
           
           // Report to server
           networkManager.reportProjectileFired(projectile);
@@ -1180,7 +1249,7 @@ export function createFiringEffect(x: number, y: number, rotation: number, type:
     
     // Add to container
     if (projectilesContainer) {
-      projectilesContainer.addChild(flash as any);
+      projectilesContainer.addChild(flash as unknown as PIXI.DisplayObject);
     } else {
       Logger.warn('Game', 'Cannot add firing effect: projectilesContainer is null');
       return;
@@ -1199,7 +1268,7 @@ export function createFiringEffect(x: number, y: number, rotation: number, type:
         if (lifetime <= 0) {
           clearInterval(fadeInterval);
           if (flash.parent) {
-            flash.parent.removeChild(flash as any);
+            flash.parent.removeChild(flash as unknown as PIXI.DisplayObject);
           }
         }
       }, 50); // 50ms intervals for roughly similar timing
@@ -1223,7 +1292,7 @@ export function createFiringEffect(x: number, y: number, rotation: number, type:
       
       if (lifetime <= 0) {
         if (flash.parent) {
-          flash.parent.removeChild(flash as any);
+          flash.parent.removeChild(flash as unknown as PIXI.DisplayObject);
         }
         app.ticker.remove(flashUpdate);
       }
@@ -1259,14 +1328,14 @@ function updateProjectiles(): void {
           
           // Ensure projectile sprite is removed from container
           if (projectile.sprite && projectile.sprite.parent) {
-            projectile.sprite.parent.removeChild(projectile.sprite as any);
+            projectile.sprite.parent.removeChild(projectile.sprite as unknown as PIXI.DisplayObject);
             Logger.debug('Game', `Removed projectile sprite for ${projectile.id} from parent container`);
           } else {
             Logger.warn('Game', `Could not remove projectile sprite for ${projectile.id}: sprite or parent is null`);
           }
           
-          // Destroy projectile
-          projectile.destroy();
+          // Return to pool instead of destroying
+          projectilePool.releaseProjectile(projectile);
           
           // Remove from array
           projectiles.splice(i, 1);
@@ -1279,8 +1348,11 @@ function updateProjectiles(): void {
         
         // Safety cleanup of problematic projectile
         if (projectile && projectile.sprite && projectile.sprite.parent) {
-          projectile.sprite.parent.removeChild(projectile.sprite as any);
+          projectile.sprite.parent.removeChild(projectile.sprite as unknown as PIXI.DisplayObject);
         }
+        
+        // Return problematic projectile to pool
+        projectilePool.releaseProjectile(projectile);
         
         // Remove from array
         projectiles.splice(i, 1);
@@ -1290,6 +1362,10 @@ function updateProjectiles(): void {
     // Debug log - occasionally show number of active projectiles
     if (Math.random() < 0.01) {
       Logger.debug('Game', `Active projectiles: ${projectiles.length}`);
+      
+      // Log pool sizes
+      const poolSizes = projectilePool.getPoolSizes();
+      Logger.debug('Game', `Projectile pool sizes - Cannon balls: ${poolSizes.cannonBalls}, Torpedoes: ${poolSizes.torpedoes}`);
     }
   } catch (error) {
     Logger.error('Game', `Error in updateProjectiles: ${error}`);
@@ -1314,7 +1390,7 @@ export function createWaterSplashEffect(x: number, y: number): void {
   splash.x = x;
   splash.y = y;
   
-  projectilesContainer.addChild(splash as any);
+  projectilesContainer.addChild(splash as unknown as PIXI.DisplayObject);
   
   // Animate the splash
   let lifetime = 20;
@@ -1327,7 +1403,7 @@ export function createWaterSplashEffect(x: number, y: number): void {
     splash.scale.set(scale);
     
     if (lifetime <= 0) {
-      projectilesContainer.removeChild(splash as any);
+      projectilesContainer.removeChild(splash as unknown as PIXI.DisplayObject);
       app.ticker.remove(splashUpdate);
     }
   };
@@ -1345,12 +1421,28 @@ function checkProjectileCollisions(): void {
       return;
     }
     
-    // Print ship count occasionally for debugging
-    if (Math.random() < 0.01) {
-      Logger.debug('Game', `Checking projectile collisions against ${ships.length} ships`);
+    // Clear and update spatial grid with current ships
+    spatialGrid.clear();
+    
+    // Add all ships to the spatial grid
+    for (const ship of ships) {
+      // Skip invalid ships
+      if (!ship || !ship.sprite || !ship.sprite.visible || ship.hull <= 0) {
+        continue;
+      }
+      spatialGrid.addObject(ship);
     }
     
-    // Check each projectile against each ship
+    // Add all projectiles to the spatial grid
+    for (const projectile of projectiles) {
+      // Skip invalid projectiles
+      if (!projectile) {
+        continue;
+      }
+      spatialGrid.addObject(projectile);
+    }
+    
+    // Check each projectile against nearby ships
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const projectile = projectiles[i];
       
@@ -1361,15 +1453,21 @@ function checkProjectileCollisions(): void {
         continue;
       }
       
+      // Get nearby ships that might collide with this projectile
+      const nearbyObjects = spatialGrid.getNearbyObjects(projectile.x, projectile.y, projectile.maxRange / 5);
+      
       let hitDetected = false;
       
-      for (const ship of ships) {
-        // Skip if ship is null, doesn't exist, or is the source of the projectile
-        if (!ship || ship.id === projectile.sourceId) continue;
-        
-        // Skip ships that have been destroyed (hull <= 0 or sprite is null)
-        if (ship.hull <= 0 || !ship.sprite) continue;
-        
+      // Filter nearby objects to only include ships (not other projectiles)
+      const nearbyShips = nearbyObjects.filter((obj: any) => 
+        obj instanceof Ship && 
+        obj.id !== projectile.sourceId && 
+        obj.hull > 0 && 
+        obj.sprite
+      ) as Ship[];
+      
+      // Check collisions with nearby ships
+      for (const ship of nearbyShips) {
         // Check collision
         if (projectile.checkCollision(ship)) {
           hitDetected = true;
@@ -1415,23 +1513,25 @@ function checkProjectileCollisions(): void {
       
       // Remove projectile if it hit something
       if (hitDetected) {
-        // Remove projectile sprite from container
+        // Ensure projectile sprite is removed from container
         if (projectile.sprite && projectile.sprite.parent) {
-          projectile.sprite.parent.removeChild(projectile.sprite as any);
+          projectile.sprite.parent.removeChild(projectile.sprite as unknown as PIXI.DisplayObject);
           Logger.debug('Game', `Removed projectile sprite for ${projectile.id} from parent container`);
         } else {
           Logger.warn('Game', `Could not remove projectile sprite for ${projectile.id}: sprite or parent is null`);
         }
         
-        // Destroy and remove projectile
-        projectile.destroy();
+        // Return to pool instead of destroying
+        projectilePool.releaseProjectile(projectile);
+        
+        // Remove from projectiles array
         projectiles.splice(i, 1);
         
         Logger.debug('Game', `Removed projectile after hit: ${projectiles.length} projectiles remaining`);
       }
     }
   } catch (error) {
-    Logger.error('Game', `Error in checkProjectileCollisions: ${error}`);
+    Logger.error('Game.checkProjectileCollisions', error);
   }
 }
 

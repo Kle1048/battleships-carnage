@@ -1,8 +1,10 @@
 import * as PIXI from 'pixi.js';
 import { Ship } from './Ship';
+import { GameEntity } from './GameEntity';
+import { v4 as uuidv4 } from 'uuid';
 import * as Logger from '../utils/Logger';
 
-// Projectile types
+// Projectile types with different properties
 export enum ProjectileType {
   CANNON_BALL = 'cannonBall',
   TORPEDO = 'torpedo'
@@ -11,236 +13,356 @@ export enum ProjectileType {
 // Projectile properties by type
 const PROJECTILE_PROPERTIES = {
   [ProjectileType.CANNON_BALL]: {
-    speed: 5,
-    damage: 15,
-    radius: 5,
-    lifetime: 120, // frames
-    maxRange: 500, // maximum travel distance
-    color: 0x333333
+    speed: 4.5,
+    damage: 10,
+    range: 800,
+    radius: 3,
+    color: 0xdddddd
   },
   [ProjectileType.TORPEDO]: {
-    speed: 3,
-    damage: 30,
-    radius: 8,
-    lifetime: 240, // frames
-    maxRange: 700, // maximum travel distance
-    color: 0x666666
+    speed: 3.0,
+    damage: 25,
+    range: 1000,
+    radius: 5,
+    color: 0x333333
   }
 };
 
-export class Projectile {
+// Interface for projectile serialization
+export interface ProjectileData {
+  id: string;
+  type: ProjectileType;
+  x: number;
+  y: number;
+  rotation: number;
+  sourceId: string;
+  spawnTimestamp: number;
+}
+
+export class Projectile implements GameEntity {
+  public id: string;
+  public type: ProjectileType;
   public x: number;
   public y: number;
   public rotation: number;
-  public type: ProjectileType;
-  public sprite: PIXI.Graphics;
   public speed: number;
   public damage: number;
-  public radius: number;
-  public lifetime: number;
-  public currentLifetime: number;
-  public sourceShip: Ship;
-  public sourceId: string;
-  public id: string;
   public maxRange: number;
+  public radius: number;
+  public sourceId: string;
+  public sprite: PIXI.DisplayObject;
   public distanceTraveled: number = 0;
-  public startX: number;
-  public startY: number;
+  public spawnTimestamp: number;
+  public sourceShipCollisionChecked: boolean = false;
   
   constructor(
+    type: ProjectileType, 
     x: number, 
     y: number, 
     rotation: number, 
-    type: ProjectileType, 
-    sourceShip: Ship
+    sourceId: string
   ) {
+    this.id = uuidv4();
+    this.type = type;
     this.x = x;
     this.y = y;
-    this.startX = x;
-    this.startY = y;
     this.rotation = rotation;
-    this.type = type;
-    this.sourceShip = sourceShip;
-    this.sourceId = sourceShip.id;
-    this.id = `${this.sourceId}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    this.sourceId = sourceId;
+    this.spawnTimestamp = Date.now();
     
     // Set properties based on type
-    const properties = PROJECTILE_PROPERTIES[type];
-    this.speed = properties.speed;
-    this.damage = properties.damage;
-    this.radius = properties.radius;
-    this.lifetime = properties.lifetime;
-    this.maxRange = properties.maxRange;
-    this.currentLifetime = 0;
+    const props = PROJECTILE_PROPERTIES[type];
+    this.speed = props.speed;
+    this.damage = props.damage;
+    this.maxRange = props.range;
+    this.radius = props.radius;
     
     // Create sprite
     this.sprite = this.createProjectileSprite();
+    
+    // Update sprite position
+    this.updateSpritePosition();
   }
   
-  private createProjectileSprite(): PIXI.Graphics {
-    try {
-      const properties = PROJECTILE_PROPERTIES[this.type];
-      const sprite = new PIXI.Graphics();
-      
-      // Draw different projectile types
-      if (this.type === ProjectileType.CANNON_BALL) {
-        // Draw a circle for cannon ball
-        sprite.beginFill(properties.color);
-        sprite.drawCircle(0, 0, this.radius);
-        sprite.endFill();
-      } else if (this.type === ProjectileType.TORPEDO) {
-        // Draw an elongated shape for torpedo
-        sprite.beginFill(properties.color);
-        sprite.drawEllipse(0, 0, this.radius * 2, this.radius);
-        sprite.endFill();
+  /**
+   * Reset a projectile to be reused (for object pooling)
+   */
+  public reset(
+    type: ProjectileType, 
+    x: number, 
+    y: number, 
+    rotation: number, 
+    sourceId: string
+  ): void {
+    // Generate a new ID for this reused projectile
+    this.id = uuidv4();
+    this.type = type;
+    this.x = x;
+    this.y = y;
+    this.rotation = rotation;
+    this.sourceId = sourceId;
+    this.spawnTimestamp = Date.now();
+    this.distanceTraveled = 0;
+    this.sourceShipCollisionChecked = false;
+    
+    // Set properties based on type
+    const props = PROJECTILE_PROPERTIES[type];
+    this.speed = props.speed;
+    this.damage = props.damage;
+    this.maxRange = props.range;
+    this.radius = props.radius;
+    
+    // Recreate the sprite if needed
+    if (!this.sprite) {
+      this.sprite = this.createProjectileSprite();
+    } else {
+      // Update sprite appearance based on type
+      try {
+        const graphics = this.sprite as PIXI.Graphics;
+        graphics.clear();
         
-        // Add a small trail
-        sprite.beginFill(0xaaaaaa, 0.7);
-        sprite.drawCircle(-this.radius * 1.5, 0, this.radius / 2);
-        sprite.endFill();
+        if (type === ProjectileType.CANNON_BALL) {
+          graphics.beginFill(props.color);
+          graphics.drawCircle(0, 0, this.radius);
+          graphics.endFill();
+        } else if (type === ProjectileType.TORPEDO) {
+          graphics.beginFill(props.color);
+          graphics.drawRect(-this.radius * 1.5, -this.radius / 2, this.radius * 3, this.radius);
+          graphics.endFill();
+        }
+      } catch (error) {
+        Logger.error('Projectile.reset', error);
+        // If updating the existing sprite fails, create a new one
+        this.sprite = this.createProjectileSprite();
       }
-      
-      sprite.x = this.x;
-      sprite.y = this.y;
-      sprite.rotation = this.rotation;
-      
-      return sprite;
-    } catch (error) {
-      Logger.error('Projectile.createProjectileSprite', error);
-      // Return a simple fallback sprite
-      const fallbackSprite = new PIXI.Graphics();
-      fallbackSprite.beginFill(0xFF0000);
-      fallbackSprite.drawCircle(0, 0, this.radius || 5);
-      fallbackSprite.endFill();
-      fallbackSprite.x = this.x;
-      fallbackSprite.y = this.y;
-      return fallbackSprite;
     }
+    
+    // Make sure the sprite is visible
+    if (this.sprite) {
+      (this.sprite as PIXI.Graphics).visible = true;
+    }
+    
+    // Update sprite position
+    this.updateSpritePosition();
+  }
+  
+  private createProjectileSprite(): PIXI.DisplayObject {
+    const graphics = new PIXI.Graphics();
+    
+    if (this.type === ProjectileType.CANNON_BALL) {
+      graphics.beginFill(PROJECTILE_PROPERTIES[ProjectileType.CANNON_BALL].color);
+      graphics.drawCircle(0, 0, this.radius);
+      graphics.endFill();
+    } else if (this.type === ProjectileType.TORPEDO) {
+      graphics.beginFill(PROJECTILE_PROPERTIES[ProjectileType.TORPEDO].color);
+      graphics.drawRect(-this.radius * 1.5, -this.radius / 2, this.radius * 3, this.radius);
+      graphics.endFill();
+    }
+    
+    return graphics as unknown as PIXI.DisplayObject;
   }
   
   public update(): boolean {
     try {
-      // Update lifetime
-      this.currentLifetime++;
-      if (this.currentLifetime >= this.lifetime) {
-        return false; // Projectile should be removed
-      }
+      // Calculate movement based on rotation and speed
+      const dx = Math.cos(this.rotation) * this.speed;
+      const dy = Math.sin(this.rotation) * this.speed;
       
-      // Update position based on velocity
-      // In PixiJS, 0 radians points to the right, and rotation is clockwise
-      // So we use cos for x and sin for y to move in the direction of rotation
-      const vx = Math.cos(this.rotation) * this.speed;
-      const vy = Math.sin(this.rotation) * this.speed;
-      
-      this.x += vx;
-      this.y += vy;
-      
-      // Calculate distance traveled
-      const dx = this.x - this.startX;
-      const dy = this.y - this.startY;
-      this.distanceTraveled = Math.sqrt(dx * dx + dy * dy);
-      
-      // Check if projectile has exceeded maximum range
-      if (this.distanceTraveled >= this.maxRange) {
-        return false; // Projectile should be removed
-      }
+      // Update position
+      this.x += dx;
+      this.y += dy;
       
       // Update sprite position
-      if (this.sprite) {
-        this.sprite.x = this.x;
-        this.sprite.y = this.y;
-        
-        // For torpedo projectiles, rotate the sprite to match movement direction
-        if (this.type === ProjectileType.TORPEDO) {
-          this.sprite.rotation = this.rotation;
-        }
-      } else {
-        Logger.warn('Projectile sprite is null or undefined');
-        return false; // Remove projectile if sprite is missing
+      this.updateSpritePosition();
+      
+      // Update distance traveled
+      this.distanceTraveled += Math.sqrt(dx * dx + dy * dy);
+      
+      // Return false if projectile has traveled its max range
+      if (this.distanceTraveled >= this.maxRange) {
+        return false;
       }
       
-      return true; // Projectile is still active
+      return true;
     } catch (error) {
       Logger.error('Projectile.update', error);
-      return false; // Remove projectile on error
+      return false;
+    }
+  }
+  
+  private updateSpritePosition(): void {
+    if (this.sprite) {
+      try {
+        const graphics = this.sprite as PIXI.Graphics;
+        graphics.position.set(this.x, this.y);
+        graphics.rotation = this.rotation;
+      } catch (error) {
+        Logger.error('Projectile.updateSpritePosition', error);
+      }
     }
   }
   
   public checkCollision(ship: Ship): boolean {
-    // Don't collide with the source ship
-    if (ship.id === this.sourceId) {
+    try {
+      // Skip collision with source ship until projectile has traveled a bit
+      if (ship.id === this.sourceId) {
+        // Only check once per projectile to avoid repeated checks
+        if (!this.sourceShipCollisionChecked && this.distanceTraveled > ship.collisionRadius * 3) {
+          this.sourceShipCollisionChecked = true;
+          return false;
+        }
+        return false;
+      }
+      
+      // Calculate distance between projectile and ship
+      const dx = this.x - ship.x;
+      const dy = this.y - ship.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Check if distance is less than sum of radii (simple circle collision)
+      return distance < (this.radius + ship.collisionRadius);
+    } catch (error) {
+      Logger.error('Projectile.checkCollision', error);
       return false;
     }
-    
-    // Simple circle collision detection
-    const dx = this.x - ship.x;
-    const dy = this.y - ship.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    
-    // Use a slightly larger collision radius for better hit detection
-    const projectileRadius = this.radius * 1.2;
-    const shipRadius = ship.collisionRadius * 1.2;
-    
-    return distance < (projectileRadius + shipRadius);
-  }
-  
-  public applyDamage(ship: Ship): void {
-    // Apply damage to the ship
-    ship.takeDamage(this.damage);
-    
-    // Add visual effect for hit
-    this.createHitEffect();
   }
   
   public createHitEffect(): void {
-    // This would create visual effects when a projectile hits a ship
-    // For now, this is a placeholder for future implementation
-  }
-  
-  public destroy(): void {
-    // Remove sprite from its parent
-    if (this.sprite.parent) {
-      this.sprite.parent.removeChild(this.sprite as any);
+    try {
+      // Create explosion effect
+      const explosion = new PIXI.Graphics();
+      explosion.beginFill(0xffaa00);
+      
+      // Size based on projectile type
+      const explosionRadius = this.type === ProjectileType.TORPEDO ? 30 : 15;
+      
+      explosion.drawCircle(0, 0, explosionRadius);
+      explosion.endFill();
+      explosion.position.set(this.x, this.y);
+      
+      // Add to same parent as projectile sprite if possible
+      if (this.sprite && this.sprite.parent) {
+        this.sprite.parent.addChild(explosion as unknown as PIXI.DisplayObject);
+      } else {
+        // Log an error but don't throw - this is a visual effect only
+        Logger.warn('Projectile.createHitEffect', 'Cannot add explosion effect: sprite or parent is null');
+        return;
+      }
+      
+      // Create a series of expanding rings
+      const rings: PIXI.Graphics[] = [];
+      for (let i = 0; i < 3; i++) {
+        const ring = new PIXI.Graphics();
+        ring.lineStyle(2, 0xffaa00);
+        ring.drawCircle(0, 0, explosionRadius * (i + 1) * 0.5);
+        ring.position.set(this.x, this.y);
+        ring.alpha = 1;
+        
+        if (this.sprite && this.sprite.parent) {
+          this.sprite.parent.addChild(ring as unknown as PIXI.DisplayObject);
+          rings.push(ring);
+        }
+      }
+      
+      // Animation duration
+      const duration = 300; // milliseconds
+      const startTime = Date.now();
+      
+      // Update function for animation
+      const explosionUpdate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Update explosion
+        explosion.alpha = 1 - progress;
+        
+        // Update rings
+        rings.forEach((ring, i) => {
+          // Scale increases over time
+          const scale = 1 + progress * (i + 1);
+          ring.scale.set(scale);
+          
+          // Alpha decreases over time, faster for outer rings
+          ring.alpha = Math.max(0, 1 - progress * (1 + i * 0.2));
+        });
+        
+        // Continue animation until complete
+        if (progress < 1) {
+          requestAnimationFrame(explosionUpdate);
+        } else {
+          // Remove explosion and rings when animation is complete
+          if (explosion.parent) {
+            explosion.parent.removeChild(explosion as unknown as PIXI.DisplayObject);
+          }
+          
+          rings.forEach(ring => {
+            if (ring.parent) {
+              ring.parent.removeChild(ring as unknown as PIXI.DisplayObject);
+            }
+          });
+        }
+      };
+      
+      // Start animation
+      requestAnimationFrame(explosionUpdate);
+    } catch (error) {
+      Logger.error('Projectile.createHitEffect', error);
     }
   }
   
-  // Serialize for network transmission
-  public serialize(): any {
+  public serialize(): ProjectileData {
     return {
       id: this.id,
+      type: this.type,
       x: this.x,
       y: this.y,
-      startX: this.startX,
-      startY: this.startY,
       rotation: this.rotation,
-      type: this.type,
       sourceId: this.sourceId,
-      distanceTraveled: this.distanceTraveled
+      spawnTimestamp: this.spawnTimestamp
     };
   }
   
-  // Create a projectile from serialized data
-  public static deserialize(data: any, ships: Map<string, Ship>): Projectile | null {
-    const sourceShip = ships.get(data.sourceId);
-    if (!sourceShip) {
-      console.warn(`Cannot create projectile: source ship ${data.sourceId} not found`);
+  public destroy(): void {
+    try {
+      // If sprite has a parent, remove it
+      if (this.sprite && this.sprite.parent) {
+        this.sprite.parent.removeChild(this.sprite as unknown as PIXI.DisplayObject);
+      }
+      
+      // Clean up PIXI resources
+      if (this.sprite) {
+        // Only destroy if it's a PIXI object with destroy method
+        if ('destroy' in this.sprite && typeof this.sprite.destroy === 'function') {
+          (this.sprite as any).destroy({ children: true });
+        }
+        this.sprite = undefined as unknown as PIXI.DisplayObject;
+      }
+    } catch (error) {
+      Logger.error('Projectile.destroy', error);
+    }
+  }
+  
+  /**
+   * Create a projectile from serialized data
+   */
+  public static deserialize(data: ProjectileData): Projectile | null {
+    try {
+      const projectile = new Projectile(
+        data.type,
+        data.x,
+        data.y,
+        data.rotation,
+        data.sourceId
+      );
+      
+      // Override ID and timestamp with the ones from data
+      projectile.id = data.id;
+      projectile.spawnTimestamp = data.spawnTimestamp;
+      
+      return projectile;
+    } catch (error) {
+      Logger.error('Projectile.deserialize', error);
       return null;
     }
-    
-    const projectile = new Projectile(
-      data.x,
-      data.y,
-      data.rotation,
-      data.type as ProjectileType,
-      sourceShip
-    );
-    
-    // Set additional properties
-    projectile.id = data.id;
-    projectile.startX = data.startX || data.x;
-    projectile.startY = data.startY || data.y;
-    projectile.distanceTraveled = data.distanceTraveled || 0;
-    
-    return projectile;
   }
 } 
